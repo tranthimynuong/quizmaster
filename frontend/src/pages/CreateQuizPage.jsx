@@ -689,7 +689,7 @@ export default function CreateQuizPage() {
               className="inline-flex items-center gap-2 px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all"
             >
               <Save className="w-4 h-4" />
-              <span>{isSubmitting ? 'Đang lưu vào Neon DB...' : 'Hoàn tất & Sinh mã chia sẻ'}</span>
+              <span>{isSubmitting ? 'Đang lưu bộ đề...' : 'Hoàn tất & Sinh mã chia sẻ'}</span>
             </button>
           </div>
         </form>
@@ -784,8 +784,8 @@ export default function CreateQuizPage() {
               <Sparkles className="w-4 h-4" />
               <span>
                 {pdfParsing
-                  ? `Đang phân tích ${pdfFiles.length} file & lưu vào Neon DB...`
-                  : `Phân tích ${pdfFiles.length > 0 ? `${pdfFiles.length} file ` : ''}PDF & Lưu vào Neon DB`}
+                  ? `Đang phân tích ${pdfFiles.length} file & tạo bộ đề...`
+                  : `Phân tích ${pdfFiles.length > 0 ? `${pdfFiles.length} file ` : ''}PDF & Tạo Bộ Đề`}
               </span>
             </button>
           </div>

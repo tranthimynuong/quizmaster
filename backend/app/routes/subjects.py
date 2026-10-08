@@ -1,12 +1,13 @@
 import re
 import unicodedata
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List
+from typing import List, Optional
 from ..database import get_db
-from ..models import Subject, Quiz
+from ..models import Subject, Quiz, User
 from ..schemas import SubjectOut, SubjectCreate, SubjectUpdate
+from ..auth import get_current_teacher_or_admin
 
 router = APIRouter(prefix="/api/subjects", tags=["Subjects"])
 
@@ -38,8 +39,12 @@ def get_subjects(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SubjectOut)
-def create_subject(subject_in: SubjectCreate, db: Session = Depends(get_db)):
-    """Create a new subject with optional auto code generation."""
+def create_subject(
+    subject_in: SubjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_teacher_or_admin)
+):
+    """Create a new subject with optional auto code generation (Teacher or Admin only)."""
     name = subject_in.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tên chủ đề không được để trống")
@@ -65,8 +70,13 @@ def create_subject(subject_in: SubjectCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{subject_id}", response_model=SubjectOut)
-def update_subject(subject_id: int, subject_in: SubjectUpdate, db: Session = Depends(get_db)):
-    """Update subject name or code."""
+def update_subject(
+    subject_id: int,
+    subject_in: SubjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_teacher_or_admin)
+):
+    """Update subject name or code (Teacher or Admin only)."""
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
         raise HTTPException(status_code=404, detail="Không tìm thấy chủ đề")
@@ -89,8 +99,12 @@ def update_subject(subject_id: int, subject_in: SubjectUpdate, db: Session = Dep
 
 
 @router.delete("/{subject_id}")
-def delete_subject(subject_id: int, db: Session = Depends(get_db)):
-    """Delete a subject and unassign its quizzes."""
+def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_teacher_or_admin)
+):
+    """Delete a subject and unassign its quizzes (Teacher or Admin only)."""
     subj = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subj:
         raise HTTPException(status_code=404, detail="Không tìm thấy chủ đề")

@@ -12,6 +12,7 @@ import {
   Trophy,
   Award,
   AlertTriangle,
+  AlertCircle,
   User,
   CheckSquare,
   Square,
@@ -20,11 +21,13 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { fetchQuizDetail, submitQuizAttempt } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import OptionExplanationCard from '../components/OptionExplanationCard';
 
 export default function ExamModePage() {
   const { shareCode } = useParams();
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
 
   const [quiz, setQuiz] = useState(null);
   const [allQuestions, setAllQuestions] = useState([]);
@@ -34,7 +37,8 @@ export default function ExamModePage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState({});
   const [flaggedQuestions, setFlaggedQuestions] = useState({});
-  const [takerName, setTakerName] = useState('Học viên');
+  const [takerName, setTakerName] = useState(user?.full_name || user?.username || '');
+  const [nameError, setNameError] = useState('');
   
   // Custom Settings
   const [selectedQuestionCount, setSelectedQuestionCount] = useState(50);
@@ -87,6 +91,12 @@ export default function ExamModePage() {
     load();
   }, [shareCode]);
 
+  useEffect(() => {
+    if (user) {
+      setTakerName(user.full_name || user.username);
+    }
+  }, [user]);
+
   // Toggle chapter inclusion
   const toggleChapter = (ch) => {
     setSelectedChapters(prev => ({
@@ -109,6 +119,12 @@ export default function ExamModePage() {
 
   // Handle Starting Exam
   const handleStartExam = () => {
+    if (!isAuthenticated && !takerName.trim()) {
+      setNameError('Vui lòng nhập Họ và tên của bạn để bắt đầu làm bài và ghi nhận kết quả thi!');
+      return;
+    }
+    setNameError('');
+
     if (eligibleQuestions.length === 0) {
       alert('Vui lòng chọn ít nhất 1 Bài để thi thử!');
       return;
@@ -250,22 +266,65 @@ export default function ExamModePage() {
 
           <div className="space-y-5 my-6">
             
-            {/* Taker Name */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Họ và tên thí sinh:
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={takerName}
-                  onChange={(e) => setTakerName(e.target.value)}
-                  placeholder="Nhập tên của bạn..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
+            {/* Taker Name / User Badge */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-500/30">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md shrink-0">
+                  {(user.full_name || user.username)[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold uppercase tracking-wider">
+                    Thí sinh dự thi (Đã đăng nhập)
+                  </div>
+                  <div className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    {user.full_name || user.username} <span className="text-xs font-normal text-slate-500">(@{user.username})</span>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Guest Notification Banner */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                    <span className="font-bold">Bạn đang thi với tư cách Khách:</span> Vui lòng nhập Họ & Tên bên dưới để bắt đầu. Bạn có thể{' '}
+                    <Link to="/login" className="font-bold underline text-indigo-600 dark:text-indigo-400 hover:text-indigo-700">
+                      Đăng nhập
+                    </Link>{' '}
+                    để tự động lưu kết quả vào tài khoản và theo dõi tiến độ.
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                    Họ và tên thí sinh <span className="text-rose-500 font-black">* (Bắt buộc)</span>:
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={takerName}
+                      onChange={(e) => {
+                        setTakerName(e.target.value);
+                        if (e.target.value.trim()) setNameError('');
+                      }}
+                      placeholder="Nhập họ và tên của bạn để ghi nhận kết quả..."
+                      className={`w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-sm font-medium focus:outline-none transition-all ${
+                        nameError
+                          ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-900 dark:text-rose-100 placeholder-rose-400'
+                          : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white'
+                      }`}
+                    />
+                  </div>
+                  {nameError && (
+                    <p className="mt-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{nameError}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Chapter Selection (Thi lộn xộn giữa các bài đã chọn) */}
             {chapters.length > 1 && (
@@ -429,6 +488,27 @@ export default function ExamModePage() {
             </span>
           </div>
 
+          {!isAuthenticated && (
+            <div className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-left flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+              <div>
+                <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-100">
+                  Lưu trữ kết quả thi vào tài khoản cá nhân?
+                </h4>
+                <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-0.5">
+                  Đăng nhập bằng tài khoản được cấp để xem lại toàn bộ lịch sử thi và thống kê tiến độ học tập.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Link
+                  to="/login"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm transition"
+                >
+                  Đăng nhập ngay
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
               to={`/quiz/${quiz.share_code}/practice`}
@@ -504,48 +584,49 @@ export default function ExamModePage() {
   const answeredCount = Object.keys(userAnswers).length;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
       
-      <div className="sticky top-16 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-200 dark:border-slate-800 p-4 mb-6 shadow-md flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">Đang thi thử ({questions.length} câu)</span>
-          <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
+      {/* Sticky Exam Top Bar */}
+      <div className="sticky top-16 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-2xl border-2 border-slate-200/90 dark:border-slate-800 p-3 sm:p-4 mb-4 sm:mb-6 shadow-md flex items-center justify-between gap-2 sm:gap-4 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Đang thi thử ({questions.length} câu)</span>
+          <h2 className="text-xs sm:text-base font-bold text-slate-900 dark:text-white truncate max-w-[200px] sm:max-w-md">
             {quiz.title}
           </h2>
         </div>
 
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono text-base sm:text-lg font-extrabold border ${
+        <div className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-mono text-sm sm:text-lg font-extrabold border ${
           timeLeft <= 120
             ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-300 animate-pulse'
             : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-900'
         }`}>
-          <Clock className="w-5 h-5 shrink-0" />
+          <Clock className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
           <span>{formatTime(timeLeft)}</span>
         </div>
 
         <button
           onClick={handleSubmitExam}
           disabled={submitting}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm active:scale-95 transition-all"
+          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm active:scale-95 transition-all shrink-0"
         >
-          <Send className="w-4 h-4" />
-          <span>{submitting ? 'Đang nộp...' : 'Nộp bài thi'}</span>
+          <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span>{submitting ? 'Đang nộp...' : 'Nộp bài'}</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
         
         {/* Left 3 cols: Question Area */}
-        <div className="lg:col-span-3 space-y-6">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-6 sm:p-8 shadow-sm">
+        <div className="lg:col-span-3 space-y-4 sm:space-y-6">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-slate-200/90 dark:border-slate-800 p-4 sm:p-7 shadow-sm">
             
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100 dark:border-slate-800/80 gap-2 flex-wrap">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300">
+                <span className="text-xs font-black px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-900/60">
                   Câu hỏi {currentIndex + 1} / {questions.length}
                 </span>
                 {currentQ.chapter && (
-                  <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg">
+                  <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60">
                     {currentQ.chapter}
                   </span>
                 )}
@@ -553,9 +634,9 @@ export default function ExamModePage() {
 
               <button
                 onClick={() => toggleFlag(currentQ.id)}
-                className={`flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors ${
+                className={`flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors shadow-xs ${
                   flaggedQuestions[currentQ.id]
-                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-400 text-amber-600 dark:text-amber-400'
+                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-400 text-amber-600 dark:text-amber-400 font-bold'
                     : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
@@ -564,7 +645,7 @@ export default function ExamModePage() {
               </button>
             </div>
 
-            <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed mb-6">
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed mb-5 sm:mb-6">
               {currentQ.content}
             </h3>
 
@@ -580,18 +661,23 @@ export default function ExamModePage() {
                   <button
                     key={opt.key}
                     onClick={() => handleSelectOption(opt.key)}
-                    className={`w-full text-left p-4 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                    className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border-2 transition-all flex items-start gap-3 cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-600 text-indigo-900 dark:text-indigo-100 ring-2 ring-indigo-600/20 font-semibold'
-                        : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:bg-indigo-50/30'
+                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-600 text-indigo-950 dark:text-indigo-100 ring-2 ring-indigo-600/20 font-bold'
+                        : 'bg-slate-50/50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:bg-slate-100/70 hover:border-slate-300'
                     }`}
                   >
-                    <span className={`w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    <span className={`w-7 h-7 rounded-full border text-xs sm:text-sm font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-xs transition-colors ${
+                      isSelected
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                     }`}>
                       {opt.key}
                     </span>
-                    <span className="text-sm sm:text-base pt-0.5">{opt.text}</span>
+                    <span className="text-sm sm:text-base pt-0.5 flex-1 leading-relaxed">
+                      <strong className="mr-1.5">{opt.key}.</strong>
+                      {opt.text}
+                    </span>
                   </button>
                 );
               })}
@@ -599,47 +685,47 @@ export default function ExamModePage() {
 
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 pt-1">
             <button
               onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
               disabled={currentIndex === 0}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-sm font-semibold disabled:opacity-40"
+              className="px-4 sm:px-5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold disabled:opacity-40 shadow-xs hover:bg-slate-50"
             >
               Câu trước
             </button>
             <button
               onClick={() => setCurrentIndex(prev => Math.min(questions.length - 1, prev + 1))}
               disabled={currentIndex === questions.length - 1}
-              className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
+              className="px-5 sm:px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold disabled:opacity-40 shadow-sm shadow-indigo-500/20 active:scale-95 transition-all"
             >
-              Câu tiếp
+              Câu tiếp theo
             </button>
           </div>
         </div>
 
         {/* Right 1 col: Question Map Palette */}
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 shadow-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-slate-200/90 dark:border-slate-800 p-4 sm:p-5 shadow-sm">
             <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center justify-between">
               <span>Bảng câu hỏi ({answeredCount}/{questions.length})</span>
             </h4>
 
-            <div className="grid grid-cols-5 gap-2 max-h-[380px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-5 gap-2 max-h-[360px] overflow-y-auto pr-1">
               {questions.map((q, idx) => {
                 const isAnswered = !!userAnswers[q.id];
                 const isFlagged = !!flaggedQuestions[q.id];
                 const isCurrent = idx === currentIndex;
 
-                let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
-                if (isAnswered) cls = 'bg-indigo-600 text-white font-bold';
-                if (isFlagged) cls = 'bg-amber-500 text-white font-bold';
-                if (isCurrent) cls += ' ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-slate-900';
+                let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60';
+                if (isAnswered) cls = 'bg-indigo-600 border-indigo-700 text-white font-bold';
+                if (isFlagged) cls = 'bg-amber-500 border-amber-600 text-white font-bold';
+                if (isCurrent) cls += ' ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 font-black';
 
                 return (
                   <button
                     key={q.id || idx}
                     onClick={() => setCurrentIndex(idx)}
-                    className={`h-9 rounded-xl text-xs font-semibold flex items-center justify-center transition-all ${cls}`}
+                    className={`h-9 rounded-xl text-xs font-semibold flex items-center justify-center transition-all shadow-xs ${cls}`}
                   >
                     {idx + 1}
                   </button>
@@ -657,7 +743,7 @@ export default function ExamModePage() {
                 <span>Đặt cờ xem lại</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded bg-slate-200 dark:bg-slate-800 inline-block" />
+                <span className="w-3 h-3 rounded bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 inline-block" />
                 <span>Chưa làm ({questions.length - answeredCount})</span>
               </div>
             </div>

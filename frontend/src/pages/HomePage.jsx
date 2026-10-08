@@ -148,7 +148,7 @@ export default function HomePage() {
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
           <RefreshCw className="w-8 h-8 animate-spin text-indigo-600 mb-3" />
-          <p className="text-sm font-medium">Đang tải danh sách bộ đề từ Neon PostgreSQL...</p>
+          <p className="text-sm font-medium">Đang tải danh sách bộ đề...</p>
         </div>
       ) : quizzes.length === 0 ? (
         <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8">

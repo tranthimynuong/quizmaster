@@ -3,7 +3,67 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# Question Schemas
+# ================= USER & AUTH SCHEMAS =================
+class UserRegister(BaseModel):
+    email: str = Field(..., pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6)
+    full_name: Optional[str] = None
+    role: Optional[str] = "student"  # "student" or "teacher"
+
+
+class UserAdminCreate(BaseModel):
+    email: str = Field(..., pattern=r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=6)
+    full_name: Optional[str] = None
+    role: str = Field(default="student", pattern="^(admin|teacher|student)$")
+
+
+class UserLogin(BaseModel):
+    email_or_username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    username: str
+    full_name: Optional[str] = None
+    role: str
+    is_active: bool
+    avatar_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+class UserUpdateProfile(BaseModel):
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+class UserUpdateRole(BaseModel):
+    role: str = Field(..., pattern="^(admin|teacher|student)$")
+
+
+class UserUpdateStatus(BaseModel):
+    is_active: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6)
+
+
+# ================= QUESTION SCHEMAS =================
 class QuestionBase(BaseModel):
     chapter: Optional[str] = "Bài 1"
     content: str
@@ -22,6 +82,20 @@ class QuestionCreate(QuestionBase):
     pass
 
 
+class QuestionUpdate(BaseModel):
+    chapter: Optional[str] = None
+    content: Optional[str] = None
+    option_a: Optional[str] = None
+    option_b: Optional[str] = None
+    option_c: Optional[str] = None
+    option_d: Optional[str] = None
+    correct_answer: Optional[str] = Field(None, pattern="^[A-Da-d]$")
+    explanation_a: Optional[str] = None
+    explanation_b: Optional[str] = None
+    explanation_c: Optional[str] = None
+    explanation_d: Optional[str] = None
+
+
 class QuestionOut(QuestionBase):
     id: int
     quiz_id: int
@@ -30,7 +104,7 @@ class QuestionOut(QuestionBase):
         from_attributes = True
 
 
-# Subject Schemas
+# ================= SUBJECT SCHEMAS =================
 class SubjectBase(BaseModel):
     name: str
     code: Optional[str] = None
@@ -56,7 +130,7 @@ class SubjectOut(BaseModel):
         from_attributes = True
 
 
-# Quiz Schemas
+# ================= QUIZ SCHEMAS =================
 class QuizBase(BaseModel):
     title: str
     description: Optional[str] = None
@@ -69,6 +143,18 @@ class QuizCreate(QuizBase):
     questions: List[QuestionCreate] = []
 
 
+class QuizUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    subject_id: Optional[int] = None
+    is_public: Optional[bool] = None
+
+
+class ChapterRenameRequest(BaseModel):
+    old_chapter_name: str
+    new_chapter_name: str
+
+
 class QuizSummaryOut(BaseModel):
     id: int
     title: str
@@ -76,6 +162,8 @@ class QuizSummaryOut(BaseModel):
     subject_id: Optional[int] = None
     subject_name: Optional[str] = None
     subject_code: Optional[str] = None
+    created_by_id: Optional[int] = None
+    creator_name: Optional[str] = None
     is_public: bool
     share_code: str
     created_at: Optional[datetime] = None
@@ -89,6 +177,9 @@ class QuizSummaryOut(BaseModel):
 class QuizAttemptOut(BaseModel):
     id: int
     quiz_id: int
+    quiz_title: Optional[str] = None
+    quiz_share_code: Optional[str] = None
+    user_id: Optional[int] = None
     taker_name: Optional[str] = None
     score: float
     submitted_at: Optional[datetime] = None
@@ -107,6 +198,8 @@ class QuizDetailOut(BaseModel):
     title: str
     description: Optional[str] = None
     subject_id: Optional[int] = None
+    created_by_id: Optional[int] = None
+    creator_name: Optional[str] = None
     subject: Optional[SubjectOut] = None
     is_public: bool
     share_code: str
@@ -120,7 +213,7 @@ class QuizDetailOut(BaseModel):
         from_attributes = True
 
 
-# Attempt Submit Schemas
+# ================= ATTEMPT SUBMIT SCHEMAS =================
 class AttemptSubmitRequest(BaseModel):
     taker_name: Optional[str] = "Học viên"
     user_answers: dict = {}
