@@ -15,7 +15,8 @@ import {
   GraduationCap,
   Sparkles,
   CheckSquare,
-  Square
+  Square,
+  Play
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { fetchQuizDetail } from '../services/api';
@@ -24,6 +25,7 @@ export default function PracticeModePage() {
   const { shareCode } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const targetChapterParam = searchParams.get('chapter');
+  const shouldAutoResume = searchParams.get('resume') === 'true';
   const initialMode = searchParams.get('mode') === 'study' ? 'study' : 'practice';
   const navigate = useNavigate();
 
@@ -37,13 +39,51 @@ export default function PracticeModePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [practiceMode, setPracticeMode] = useState(initialMode);
+  const [savedProgress, setSavedProgress] = useState(null);
 
   // Configuration State
-  const [isConfiguring, setIsConfiguring] = useState(!targetChapterParam);
+  const [isConfiguring, setIsConfiguring] = useState(!targetChapterParam && !shouldAutoResume);
   const [selectedCount, setSelectedCount] = useState(50);
   const [orderMode, setOrderMode] = useState('shuffle');
   const [showExplanationToggle, setShowExplanationToggle] = useState(true);
   const [isQuestionPickerOpen, setIsQuestionPickerOpen] = useState(false);
+
+  // Storage key helper
+  const storageKey = `quiz_practice_progress_${shareCode}`;
+
+  const loadSavedProgress = () => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.error('Error reading saved practice progress:', err);
+    }
+    return null;
+  };
+
+  const handleResumeProgress = (progressData) => {
+    const data = progressData || savedProgress || loadSavedProgress();
+    if (!data || !data.questions || data.questions.length === 0) return;
+
+    setQuestions(data.questions);
+    setCurrentIndex(Math.min(data.currentIndex || 0, data.questions.length - 1));
+    setUserAnswers(data.userAnswers || {});
+    if (data.practiceMode) setPracticeMode(data.practiceMode);
+    if (data.selectedChapters) setSelectedChapters(data.selectedChapters);
+    setIsConfiguring(false);
+  };
+
+  const handleClearSavedProgress = () => {
+    try {
+      localStorage.removeItem(storageKey);
+      setSavedProgress(null);
+    } catch (err) {}
+  };
 
   useEffect(() => {
     async function load() {
@@ -66,7 +106,17 @@ export default function PracticeModePage() {
         }
         setSelectedChapters(chMap);
 
-        // If targetChapterParam is provided in URL (e.g. from quiz detail page [Học] or [Luyện tập] button)
+        // Check local progress
+        const existingProgress = loadSavedProgress();
+        setSavedProgress(existingProgress);
+
+        // If resume param is explicitly in URL and progress exists
+        if (shouldAutoResume && existingProgress) {
+          handleResumeProgress(existingProgress);
+          return;
+        }
+
+        // If targetChapterParam is provided in URL
         if (targetChapterParam) {
           const filteredByChapter = qList.filter(q => (q.chapter || 'Bài 1') === targetChapterParam);
           if (filteredByChapter.length > 0) {
@@ -86,7 +136,32 @@ export default function PracticeModePage() {
       }
     }
     load();
-  }, [shareCode, targetChapterParam]);
+  }, [shareCode, targetChapterParam, shouldAutoResume]);
+
+  // Auto-save progress whenever answering or moving to another question
+  useEffect(() => {
+    if (!isConfiguring && questions.length > 0) {
+      try {
+        const progressToSave = {
+          shareCode,
+          quizId: quiz?.id,
+          quizTitle: quiz?.title,
+          questions,
+          currentIndex,
+          userAnswers,
+          selectedChapters,
+          selectedCount,
+          orderMode,
+          practiceMode,
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(storageKey, JSON.stringify(progressToSave));
+        setSavedProgress(progressToSave);
+      } catch (e) {
+        console.error('Failed to auto-save progress', e);
+      }
+    }
+  }, [currentIndex, userAnswers, isConfiguring, questions, practiceMode]);
 
   const toggleChapter = (ch) => {
     setSelectedChapters(prev => ({
@@ -127,29 +202,36 @@ export default function PracticeModePage() {
     setIsConfiguring(false);
   };
 
+  // Keyboard navigation & Shortcuts (Left/Right arrows, A/B/C/D, 1/2/3/4)
   useEffect(() => {
-    if (isConfiguring) return;
+    if (isConfiguring || questions.length === 0) return;
 
     const handleKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
 
-      const key = e.key.toUpperCase();
-      if (['A', 'B', 'C', 'D'].includes(key) && currentQ) {
-        handleSelectOption(key);
-      } else if (key === '1') handleSelectOption('A');
-      else if (key === '2') handleSelectOption('B');
-      else if (key === '3') handleSelectOption('C');
-      else if (key === '4') handleSelectOption('D');
-      else if (e.key === 'ArrowRight' && currentIndex < questions.length - 1) {
-        handleNext();
-      } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
-        handlePrev();
+      const currentQItem = questions[currentIndex];
+
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (currentIndex < questions.length - 1) {
+          setCurrentIndex(prev => prev + 1);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (currentIndex > 0) {
+          setCurrentIndex(prev => prev - 1);
+        }
+      } else if (['a', 'b', 'c', 'd', 'A', 'B', 'C', 'D'].includes(e.key) && currentQItem && practiceMode !== 'study') {
+        handleSelectOption(e.key.toUpperCase());
+      } else if (['1', '2', '3', '4'].includes(e.key) && currentQItem && practiceMode !== 'study') {
+        const numMap = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
+        handleSelectOption(numMap[e.key]);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isConfiguring, currentIndex, questions, userAnswers]);
+  }, [isConfiguring, currentIndex, questions, practiceMode, userAnswers]);
 
   const currentQ = questions[currentIndex];
   const selectedOption = currentQ ? userAnswers[currentQ.id] : null;
@@ -163,7 +245,7 @@ export default function PracticeModePage() {
       [currentQ.id]: optionKey
     }));
 
-    if (optionKey.toUpperCase() === currentQ.correct_answer.toUpperCase()) {
+    if (optionKey.toUpperCase() === currentQ.correct_answer?.toUpperCase()) {
       confetti({
         particleCount: 35,
         spread: 55,
@@ -185,7 +267,7 @@ export default function PracticeModePage() {
   };
 
   const handleReset = () => {
-    if (window.confirm('Bạn có muốn cấu hình lại phiên luyện tập không?')) {
+    if (window.confirm('Bạn có muốn cấu hình lại phiên luyện tập không? Tiến độ hiện tại vẫn được lưu.')) {
       setIsConfiguring(true);
     }
   };
@@ -222,6 +304,7 @@ export default function PracticeModePage() {
   if (isConfiguring) {
     const totalEligible = eligibleQuestions.length;
     const countOptions = [20, 30, 40, 50, 100].filter(c => c < totalEligible);
+    const hasValidSavedProgress = savedProgress && (savedProgress.currentIndex > 0 || Object.keys(savedProgress.userAnswers || {}).length > 0);
 
     return (
       <div className="max-w-2xl mx-auto px-4 py-10">
@@ -238,6 +321,43 @@ export default function PracticeModePage() {
               <p className="text-xs sm:text-sm text-slate-500 line-clamp-1">{quiz.title}</p>
             </div>
           </div>
+
+          {/* RESUME SAVED PROGRESS PROMPT BANNER */}
+          {hasValidSavedProgress && (
+            <div className="my-5 p-4 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-pink-50/90 dark:from-indigo-950/50 dark:via-purple-950/40 dark:to-pink-950/50 border border-indigo-200/90 dark:border-indigo-800/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-indigo-950 dark:text-indigo-200">
+                    Phát hiện phiên học dở gần nhất!
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                    Bạn đã làm <strong>{Object.keys(savedProgress.userAnswers || {}).length}</strong>/{savedProgress.questions?.length} câu • Dừng lại ở câu <strong>{savedProgress.currentIndex + 1}</strong>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleResumeProgress()}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Tiếp tục học ngay</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSavedProgress}
+                  className="px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 text-slate-500 hover:text-rose-600 text-xs font-semibold transition-colors"
+                  title="Xóa phiên học dở này"
+                >
+                  Xóa
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-5 my-6">
             
@@ -625,6 +745,23 @@ export default function PracticeModePage() {
         </div>
       </div>
 
+      {/* Keyboard navigation shortcut guide */}
+      <div className="mt-4 text-center text-[11px] text-slate-400 dark:text-slate-500 hidden sm:flex items-center justify-center gap-3 select-none">
+        <span className="inline-flex items-center gap-1">
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">◀</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">▶</kbd>
+          <span>hoặc phím Mũi Tên để lùi/tới câu</span>
+        </span>
+        <span>•</span>
+        <span className="inline-flex items-center gap-1">
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">A</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">B</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">C</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[10px] text-slate-700 dark:text-slate-300 font-bold">D</kbd>
+          <span>để chọn nhanh đáp án</span>
+        </span>
+      </div>
+
       {/* QUESTION PICKER MODAL */}
       {isQuestionPickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
@@ -639,7 +776,7 @@ export default function PracticeModePage() {
                 onClick={() => setIsQuestionPickerOpen(false)}
                 className="p-1.5 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                <CloseIcon className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
