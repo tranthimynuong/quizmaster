@@ -20,8 +20,10 @@ from ..schemas import (
     AttemptSubmitRequest,
     AttemptSubmitResponse,
     QuizAttemptOut,
-    ChapterSummaryOut
+    ChapterSummaryOut,
+    AiSolveRequest
 )
+from ..services.ai_service import solve_and_explain_question
 from ..auth import get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api/quizzes", tags=["Quizzes"])
@@ -37,6 +39,19 @@ def generate_share_code(title: str, db: Session) -> str:
         if not db.query(Quiz).filter(Quiz.share_code == code).first():
             return code
     return f"q-{secrets.token_hex(4)}"
+
+
+@router.post("/ai-solve-question")
+def ai_solve_question_endpoint(data: AiSolveRequest):
+    """Sử dụng AI & bộ suy luận để giải đáp án chính xác và tạo 4 lời giải thích chuyên sâu."""
+    return solve_and_explain_question(
+        content=data.content,
+        option_a=data.option_a,
+        option_b=data.option_b,
+        option_c=data.option_c,
+        option_d=data.option_d,
+        current_answer=data.current_answer
+    )
 
 
 @router.get("", response_model=List[QuizSummaryOut])

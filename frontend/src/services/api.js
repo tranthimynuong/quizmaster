@@ -289,6 +289,26 @@ export async function deleteQuizQuestion(identifier, questionId) {
   return res.json();
 }
 
+export async function aiSolveQuestion({ content, option_a, option_b, option_c, option_d, current_answer }) {
+  const res = await fetch(`${API_BASE}/quizzes/ai-solve-question`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      content,
+      option_a,
+      option_b,
+      option_c,
+      option_d,
+      current_answer
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể giải đáp án bằng AI.');
+  }
+  return res.json();
+}
+
 export function getQuizPdfExportUrl(shareCode, options = {}) {
   const params = new URLSearchParams();
   if (options.chapter && options.chapter !== 'all') params.append('chapter', options.chapter);

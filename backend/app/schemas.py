@@ -63,6 +63,15 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6)
 
 
+class AiSolveRequest(BaseModel):
+    content: str
+    option_a: str
+    option_b: str
+    option_c: str
+    option_d: str
+    current_answer: Optional[str] = None
+
+
 # ================= QUESTION SCHEMAS =================
 class QuestionBase(BaseModel):
     chapter: Optional[str] = "Bài 1"

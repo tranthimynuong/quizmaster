@@ -39,7 +39,8 @@ import {
   renameQuizChapter,
   updateQuizQuestion,
   deleteQuizQuestion,
-  fetchSubjects
+  fetchSubjects,
+  aiSolveQuestion
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import ShareModal from '../components/ShareModal';
@@ -105,6 +106,40 @@ export default function QuizDetailPage() {
   const [qExpC, setQExpC] = useState('');
   const [qExpD, setQExpD] = useState('');
   const [isUpdatingQuestion, setIsUpdatingQuestion] = useState(false);
+  const [isAiSolving, setIsAiSolving] = useState(false);
+  const [aiSolveNotice, setAiSolveNotice] = useState(null);
+
+  const handleAiSolveQuestion = async () => {
+    if (!qContent.trim() || !qOptionA.trim() || !qOptionB.trim() || !qOptionC.trim() || !qOptionD.trim()) {
+      alert('Vui lòng nhập đầy đủ nội dung câu hỏi và 4 đáp án A/B/C/D để AI phân tích.');
+      return;
+    }
+    setIsAiSolving(true);
+    setAiSolveNotice(null);
+    try {
+      const res = await aiSolveQuestion({
+        content: qContent.trim(),
+        option_a: qOptionA.trim(),
+        option_b: qOptionB.trim(),
+        option_c: qOptionC.trim(),
+        option_d: qOptionD.trim(),
+        current_answer: qCorrect
+      });
+      if (res.correct_answer) {
+        setQCorrect(res.correct_answer);
+      }
+      if (res.explanation_a) setQExpA(res.explanation_a);
+      if (res.explanation_b) setQExpB(res.explanation_b);
+      if (res.explanation_c) setQExpC(res.explanation_c);
+      if (res.explanation_d) setQExpD(res.explanation_d);
+      setAiSolveNotice(`✨ AI đã xác định đáp án đúng (${res.correct_answer}) và tự động tạo 4 lời giải thích chi tiết!`);
+      setTimeout(() => setAiSolveNotice(null), 5000);
+    } catch (err) {
+      alert(err.message || 'Lỗi khi gọi AI giải câu hỏi');
+    } finally {
+      setIsAiSolving(false);
+    }
+  };
   const [editQuestionError, setEditQuestionError] = useState(null);
 
   const canEdit = isAdmin || (user && quiz && quiz.created_by_id === user.id) || !quiz?.created_by_id;
@@ -991,6 +1026,44 @@ export default function QuizDetailPage() {
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+
+              {/* AI Auto-Solver Callout */}
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/40 border border-purple-200 dark:border-purple-800/60 my-1">
+                <div className="min-w-0 pr-2">
+                  <div className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span>Trợ lý AI Phân Tích & Giải Thích</span>
+                  </div>
+                  <div className="text-[11px] text-purple-700 dark:text-purple-300">
+                    Tự động tìm đáp án chuẩn và viết 4 lời giải thích chuyên sâu
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isAiSolving}
+                  onClick={handleAiSolveQuestion}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 active:scale-95"
+                >
+                  {isAiSolving ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Đang phân tích...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>AI Gợi Ý & Viết Lời Giải</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {aiSolveNotice && (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>{aiSolveNotice}</span>
+                </div>
+              )}
 
               {/* 4 Options */}
               <div className="space-y-3 pt-2">
