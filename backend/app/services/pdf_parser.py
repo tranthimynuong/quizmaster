@@ -91,16 +91,21 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
             except Exception:
                 pass
 
-            # 3. Render Pixmap for pixel-level visual highlight verification
-            pix = None
-            scale_x = 1.0
-            scale_y = 1.0
-            try:
-                pix = page.get_pixmap(dpi=120)
-                scale_x = pix.width / max(1.0, page_w)
-                scale_y = pix.height / max(1.0, page_h)
-            except Exception:
-                pix = None
+            # 3. Lazy Pixmap for pixel-level visual highlight verification (only if needed)
+            pix_container = {"pix": None, "scale_x": 1.0, "scale_y": 1.0, "attempted": False}
+
+            def get_page_pix():
+                if not pix_container["attempted"]:
+                    pix_container["attempted"] = True
+                    try:
+                        # 72 DPI is fast and sufficient for background color detection
+                        p = page.get_pixmap(dpi=72)
+                        pix_container["pix"] = p
+                        pix_container["scale_x"] = p.width / max(1.0, page_w)
+                        pix_container["scale_y"] = p.height / max(1.0, page_h)
+                    except Exception:
+                        pix_container["pix"] = None
+                return pix_container["pix"], pix_container["scale_x"], pix_container["scale_y"]
 
             page_dict = page.get_text("dict")
             blocks = [b for b in page_dict.get("blocks", []) if "lines" in b]
@@ -155,36 +160,38 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                                     is_under_highlight = True
                                     break
 
-                        # Check pixel sampling if not yet detected as highlighted
-                        if not is_under_highlight and pix and not span_rect.is_empty:
-                            px0 = max(0, min(pix.width - 1, int(span_rect.x0 * scale_x)))
-                            py0 = max(0, min(pix.height - 1, int(span_rect.y0 * scale_y)))
-                            px1 = max(0, min(pix.width, int(span_rect.x1 * scale_x)))
-                            py1 = max(0, min(pix.height, int(span_rect.y1 * scale_y)))
+                        # Check pixel sampling ONLY if not already detected and span might be part of an option/question
+                        if not is_under_highlight and not is_colored and not span_rect.is_empty and (re.search(r'^[A-Da-d][\.\)\:\-]', text.strip()) or len(text.strip()) > 3):
+                            pix, scale_x, scale_y = get_page_pix()
+                            if pix:
+                                px0 = max(0, min(pix.width - 1, int(span_rect.x0 * scale_x)))
+                                py0 = max(0, min(pix.height - 1, int(span_rect.y0 * scale_y)))
+                                px1 = max(0, min(pix.width, int(span_rect.x1 * scale_x)))
+                                py1 = max(0, min(pix.height, int(span_rect.y1 * scale_y)))
 
-                            if px1 > px0 and py1 > py0:
-                                step_x = max(1, (px1 - px0) // 8)
-                                step_y = max(1, (py1 - py0) // 3)
-                                sample_total = 0
-                                sample_highlight = 0
+                                if px1 > px0 and py1 > py0:
+                                    step_x = max(1, (px1 - px0) // 8)
+                                    step_y = max(1, (py1 - py0) // 3)
+                                    sample_total = 0
+                                    sample_highlight = 0
 
-                                for sy in range(py0, py1, step_y):
-                                    for sx in range(px0, px1, step_x):
-                                        pixel = pix.pixel(sx, sy)
-                                        pr, pg, pb = pixel[0], pixel[1], pixel[2]
-                                        sample_total += 1
+                                    for sy in range(py0, py1, step_y):
+                                        for sx in range(px0, px1, step_x):
+                                            pixel = pix.pixel(sx, sy)
+                                            pr, pg, pb = pixel[0], pixel[1], pixel[2]
+                                            sample_total += 1
 
-                                        is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
-                                        is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
-                                        is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
-                                        is_px_orange = (pr > 190 and pg > 90 and pg < 185 and pb < 110)
-                                        is_px_pink = (pr > 190 and pb > 140 and pg < 170)
+                                            is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
+                                            is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
+                                            is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
+                                            is_px_orange = (pr > 190 and pg > 90 and pg < 185 and pb < 110)
+                                            is_px_pink = (pr > 190 and pb > 140 and pg < 170)
 
-                                        if is_px_yellow or is_px_green or is_px_cyan or is_px_orange or is_px_pink:
-                                            sample_highlight += 1
+                                            if is_px_yellow or is_px_green or is_px_cyan or is_px_orange or is_px_pink:
+                                                sample_highlight += 1
 
-                                if sample_total > 0 and (sample_highlight / sample_total) >= 0.15:
-                                    is_under_highlight = True
+                                    if sample_total > 0 and (sample_highlight / sample_total) >= 0.15:
+                                        is_under_highlight = True
 
                         font_lower = span.get("font", "").lower()
                         flags = span.get("flags", 0)
