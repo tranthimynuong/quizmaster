@@ -369,14 +369,15 @@ def parse_single_block(block: str, default_chapter: str = "Bài 1", global_answe
 
     checkmark_opts = [
         key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)]
-        if re.search(r'[✓✔☑\*]|(?:\s*[\(\[]?(?:đúng|dung|chính xác|correct|true)[\)\]]?\s*$)', clean_inline_text(r), re.IGNORECASE)
+        if re.search(r'[✓✔☑\*]|\s+[\(\[](?:đúng|dung|chính xác|correct|true)[\)\]]\s*$', clean_inline_text(r), re.IGNORECASE)
     ]
 
     def clean_opt(s: str) -> str:
         cleaned = clean_inline_text(s)
         cleaned = re.sub(r'^[✓✔☑\*\s]+', '', cleaned).strip()
         cleaned = re.sub(r'[✓✔☑\*]+$', '', cleaned).strip()
-        cleaned = re.sub(r'\s*[\(\[]?(?:đúng|dung|chính xác|correct|true)[\)\]]?\s*$', '', cleaned, flags=re.IGNORECASE).strip()
+        # Only remove trailing (đúng) or [đúng] if enclosed in brackets/parentheses and string is not JUST "True"/"Đúng"
+        cleaned = re.sub(r'\s+[\(\[](?:đúng|dung|chính xác|correct|true)[\)\]]\s*$', '', cleaned, flags=re.IGNORECASE).strip()
         return cleaned
 
     opt_a = clean_opt(opt_a_raw)
@@ -479,7 +480,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
                 pass
 
     # Split document into segments or questions
-    split_pattern = r'(?:\n|^)\s*(?=(?:(?:Câu|CÂU|câu|Question|QUESTION|Bài|BÀI|Task|Ex|Q\.?|CÂU\s*HỎI|Câu\s*hỏi|Bài\s*tập|BT)\s*\d+|[\(\[]?\d{1,4}[\.\)\:\-\/\>\]\s][\s\.\)\:\-\/\>\]]*\S|(?:BÀI|CHƯƠNG|PHẦN|CHỦ ĐỀ|TIẾT|HỌC\s*PHẦN|MODULE)\s*[0-9IVXLCDMivxlcdm]+))'
+    split_pattern = r'(?:\n|^)\s*(?=(?:(?:Câu|CÂU|câu|Question|QUESTION|Bài|BÀI|Task|Ex|Q\.?|CÂU\s*HỎI|Câu\s*hỏi|Bài\s*tập|BT)\s*\d+|\b\d{1,4}[\.\)\:\-\/]\s*|(?:BÀI|CHƯƠNG|PHẦN|CHỦ ĐỀ|TIẾT|HỌC\s*PHẦN|MODULE)\s*[0-9IVXLCDMivxlcdm]+))'
     blocks = re.split(split_pattern, normalized, flags=re.IGNORECASE)
 
     current_chapter = "Bài 1"
