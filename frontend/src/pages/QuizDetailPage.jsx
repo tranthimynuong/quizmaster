@@ -548,32 +548,6 @@ export default function QuizDetailPage() {
           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
             {canEdit && (
               <button
-                type="button"
-                onClick={() => handleTogglePrivacy()}
-                disabled={isTogglingPrivacy}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-semibold text-xs transition-all ${
-                  quiz.is_public
-                    ? 'border-emerald-200/90 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                    : 'border-amber-200/90 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
-                }`}
-                title={quiz.is_public ? 'Đang công khai - Bấm để chuyển sang riêng tư' : 'Đang riêng tư - Bấm để chuyển sang công khai'}
-              >
-                {quiz.is_public ? (
-                  <>
-                    <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>{isTogglingPrivacy ? 'Đang lưu...' : 'Công khai'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>{isTogglingPrivacy ? 'Đang lưu...' : 'Riêng tư'}</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {canEdit && (
-              <button
                 onClick={openEditQuizModal}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 font-semibold text-xs transition-all"
                 title="Chỉnh sửa tên, môn học hoặc mô tả đề"
@@ -1612,6 +1586,13 @@ export default function QuizDetailPage() {
         initialChapter={exportTargetChapter}
         isOpen={isExportPdfOpen}
         onClose={() => setIsExportPdfOpen(false)}
+      />
+
+      {/* Share Quiz Modal */}
+      <ShareModal
+        quiz={quiz}
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
       />
 
       {/* Delete Confirmation Modal */}
