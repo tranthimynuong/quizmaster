@@ -58,9 +58,10 @@ def ai_solve_question_endpoint(data: AiSolveRequest):
 def get_quizzes(
     subject_id: Optional[str] = None,
     search: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Lấy danh sách tất cả các bộ đề công khai trên hệ thống."""
+    """Lấy danh sách các bộ đề công khai hoặc bộ đề do chính người dùng tạo ra."""
     query = db.query(
         Quiz,
         Subject.name.label("subject_name"),
@@ -71,8 +72,15 @@ def get_quizzes(
     ).outerjoin(Subject, Quiz.subject_id == Subject.id)\
      .outerjoin(User, Quiz.created_by_id == User.id)\
      .outerjoin(Question, Quiz.id == Question.quiz_id)\
-     .outerjoin(QuizAttempt, Quiz.id == QuizAttempt.quiz_id)\
-     .filter(Quiz.is_public == True)
+     .outerjoin(QuizAttempt, Quiz.id == QuizAttempt.quiz_id)
+
+    # Privacy filtering
+    if current_user and current_user.role == "admin":
+        pass  # Admin can see all public and private quizzes
+    elif current_user:
+        query = query.filter((Quiz.is_public == True) | (Quiz.created_by_id == current_user.id) | (Quiz.created_by_id.is_(None)))
+    else:
+        query = query.filter((Quiz.is_public == True) | (Quiz.created_by_id.is_(None)))
 
     if subject_id is not None and str(subject_id).strip() != "":
         s_val = str(subject_id).strip().lower()
@@ -117,23 +125,27 @@ def get_my_created_quizzes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Lấy danh sách các bộ đề do chính người dùng hiện tại tạo ra."""
+    """Lấy danh sách các bộ đề do chính người dùng hiện tại tạo ra (hoặc tất cả nếu là admin)."""
     query = db.query(
         Quiz,
         Subject.name.label("subject_name"),
         Subject.code.label("subject_code"),
+        User.full_name.label("creator_name"),
         func.count(Question.id.distinct()).label("question_count"),
         func.count(QuizAttempt.id.distinct()).label("attempt_count")
     ).outerjoin(Subject, Quiz.subject_id == Subject.id)\
+     .outerjoin(User, Quiz.created_by_id == User.id)\
      .outerjoin(Question, Quiz.id == Question.quiz_id)\
-     .outerjoin(QuizAttempt, Quiz.id == QuizAttempt.quiz_id)\
-     .filter(Quiz.created_by_id == current_user.id)
+     .outerjoin(QuizAttempt, Quiz.id == QuizAttempt.quiz_id)
 
-    results = query.group_by(Quiz.id, Subject.name, Subject.code)\
+    if current_user.role != "admin":
+        query = query.filter((Quiz.created_by_id == current_user.id) | (Quiz.created_by_id.is_(None)))
+
+    results = query.group_by(Quiz.id, Subject.name, Subject.code, User.full_name)\
                    .order_by(Quiz.created_at.desc()).all()
 
     output = []
-    for quiz, subject_name, subject_code, q_count, a_count in results:
+    for quiz, subject_name, subject_code, creator_name, q_count, a_count in results:
         output.append(QuizSummaryOut(
             id=quiz.id,
             title=quiz.title,
@@ -142,7 +154,7 @@ def get_my_created_quizzes(
             subject_name=subject_name,
             subject_code=subject_code,
             created_by_id=quiz.created_by_id,
-            creator_name=current_user.full_name or current_user.username,
+            creator_name=creator_name or current_user.full_name or current_user.username,
             is_public=quiz.is_public,
             share_code=quiz.share_code,
             created_at=quiz.created_at,
