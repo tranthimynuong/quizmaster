@@ -21,7 +21,9 @@ import {
   Eye,
   Play,
   GraduationCap,
-  Home
+  Home,
+  Globe,
+  Lock
 } from 'lucide-react';
 import { fetchSubjects, createQuiz, parsePdfQuiz, createSubject } from '../services/api';
 
@@ -234,7 +236,8 @@ export default function CreateQuizPage() {
       const res = await parsePdfQuiz(pdfFiles, {
         title: title.trim() || undefined,
         subjectId: subjectId ? subjectId : undefined,
-        autoSave: true
+        autoSave: true,
+        isPublic: isPublic
       });
       setCreatedQuiz(res.quiz || res);
     } catch (err) {
@@ -462,6 +465,62 @@ export default function CreateQuizPage() {
               placeholder="VD: Đề thi chia theo từng bài từ bài 1 đến bài 5..."
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
             />
+          </div>
+        </div>
+
+        {/* PRIVACY SELECTOR */}
+        <div className="pt-2">
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+            Quyền riêng tư bộ đề
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setIsPublic(true)}
+              className={`p-3.5 rounded-2xl border-2 text-left transition-all flex items-start gap-3 cursor-pointer ${
+                isPublic
+                  ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border-indigo-600 ring-2 ring-indigo-600/20'
+                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-500 hover:border-slate-300'
+              }`}
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${
+                isPublic ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+              }`}>
+                <Globe className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-bold ${isPublic ? 'text-indigo-950 dark:text-indigo-200' : 'text-slate-800 dark:text-slate-200'}`}>
+                  Công khai (Public)
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                  Hiển thị trên Trang Chủ và Danh Mục cho mọi người tham gia học & thi thử.
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsPublic(false)}
+              className={`p-3.5 rounded-2xl border-2 text-left transition-all flex items-start gap-3 cursor-pointer ${
+                !isPublic
+                  ? 'bg-amber-50/80 dark:bg-amber-950/50 border-amber-500 ring-2 ring-amber-500/20'
+                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-500 hover:border-slate-300'
+              }`}
+            >
+              <div className={`p-2 rounded-xl shrink-0 ${
+                !isPublic ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+              }`}>
+                <Lock className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-bold ${!isPublic ? 'text-amber-950 dark:text-amber-200' : 'text-slate-800 dark:text-slate-200'}`}>
+                  Riêng tư (Private)
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                  Chỉ bạn và người có liên kết / mã chia sẻ (Share Code) mới có thể vào làm bài.
+                </div>
+              </div>
+            </button>
           </div>
         </div>
 

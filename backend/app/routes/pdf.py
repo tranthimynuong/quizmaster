@@ -18,6 +18,7 @@ async def parse_pdf_quiz(
     title: Optional[str] = Form(None),
     subject_id: Optional[str] = Form(None),
     auto_save: Optional[bool] = Form(True),
+    is_public: Optional[bool] = Form(True),
     db: Session = Depends(get_db)
 ):
     """
@@ -83,7 +84,7 @@ async def parse_pdf_quiz(
                 title=quiz_title.strip(),
                 description=f"Bộ đề được trích xuất tự động từ {len(file_names)} file PDF ({desc_files}) gồm {len(all_parsed_questions)} câu hỏi.",
                 subject_id=parsed_subject_id,
-                is_public=True,
+                is_public=bool(is_public),
                 share_code=share_code
             )
             db.add(quiz)

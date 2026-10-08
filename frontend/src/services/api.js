@@ -327,7 +327,7 @@ export async function submitQuizAttempt(quizId, submissionData) {
   return res.json();
 }
 
-export async function parsePdfQuiz(files, { title, subjectId, autoSave = true }) {
+export async function parsePdfQuiz(files, { title, subjectId, autoSave = true, isPublic = true }) {
   const formData = new FormData();
   const fileList = Array.isArray(files) ? files : [files];
   fileList.forEach(f => {
@@ -336,6 +336,7 @@ export async function parsePdfQuiz(files, { title, subjectId, autoSave = true })
   if (title) formData.append('title', title);
   if (subjectId) formData.append('subject_id', subjectId);
   formData.append('auto_save', autoSave);
+  formData.append('is_public', isPublic);
 
   const headers = getAuthHeaders(false);
 
