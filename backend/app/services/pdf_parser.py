@@ -39,9 +39,10 @@ def extract_text_from_pdf_pypdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
 def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
     """
     Extracts text while detecting:
-    1. Red / Blue / Green colored text (used to mark correct answers).
-    2. Bold / Italic / Underline styles.
-    3. Annotations and highlights.
+    1. Red / Blue / Green / Colored font text.
+    2. Yellow / Green / Cyan / Orange background highlight rectangles (vector drawings & PDF annotations).
+    3. Bold / Italic styles.
+    4. Multi-column layout reading order (Left column -> Right column).
     Injects [COLOR_MARK], [BOLD_MARK], [ITALIC_MARK] into the text stream.
     """
     try:
@@ -52,12 +53,64 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
 
         for page_idx in range(pages_to_read):
             page = doc[page_idx]
-            page_dict = page.get_text("dict")
-            page_lines = []
+            page_w = page.rect.width
+            page_h = page.rect.height
 
-            for block in page_dict.get("blocks", []):
-                if "lines" not in block:
-                    continue
+            # 1. Collect all Highlight Annotations
+            highlight_rects = []
+            try:
+                for annot in page.annots():
+                    if annot.rect:
+                        highlight_rects.append(pymupdf.Rect(annot.rect))
+            except Exception:
+                pass
+
+            # 2. Collect all Vector Drawing Fills (e.g. Yellow text highlights, background rectangles)
+            try:
+                for draw in page.get_drawings():
+                    fill = draw.get("fill")
+                    if fill and isinstance(fill, (list, tuple)) and len(fill) >= 3:
+                        fr, fg, fb = fill[0], fill[1], fill[2]
+                        if fr <= 1.0 and fg <= 1.0 and fb <= 1.0:
+                            fr, fg, fb = fr * 255.0, fg * 255.0, fb * 255.0
+
+                        # Detect highlight colors (Yellow, Lime Green, Cyan, Orange, Pink)
+                        is_yellow = (fr > 160 and fg > 160 and fb < 160)
+                        is_green = (fg > 150 and fr < 160 and fb < 170)
+                        is_cyan = (fb > 160 and fg > 150 and fr < 160)
+                        is_orange = (fr > 190 and fg > 90 and fb < 110)
+                        is_pink = (fr > 190 and fb > 140 and fg < 180)
+                        is_highlight_color = is_yellow or is_green or is_cyan or is_orange or is_pink
+
+                        d_rect = draw.get("rect")
+                        if is_highlight_color and d_rect and d_rect.width > 4 and d_rect.height > 4:
+                            # Exclude full-page backgrounds
+                            if d_rect.width < page_w * 0.9 or d_rect.height < page_h * 0.9:
+                                highlight_rects.append(pymupdf.Rect(d_rect))
+            except Exception:
+                pass
+
+            page_dict = page.get_text("dict")
+            blocks = [b for b in page_dict.get("blocks", []) if "lines" in b]
+
+            # 3. Multi-column Layout Detection (e.g. 2-column slides / exam papers)
+            mid_x = page_w * 0.48
+            col1_blocks = [b for b in blocks if b["bbox"][0] < mid_x and b["bbox"][2] <= page_w * 0.65]
+            col2_blocks = [b for b in blocks if b["bbox"][0] >= mid_x * 0.75]
+            header_blocks = [b for b in blocks if b not in col1_blocks and b not in col2_blocks]
+
+            if len(col1_blocks) >= 2 and len(col2_blocks) >= 2:
+                # 2-column page: Header first, then Left column (top-to-bottom), then Right column (top-to-bottom)
+                sorted_blocks = (
+                    sorted(header_blocks, key=lambda b: b["bbox"][1]) +
+                    sorted(col1_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0])) +
+                    sorted(col2_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+                )
+            else:
+                sorted_blocks = sorted(blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+
+            page_lines = []
+            for block in sorted_blocks:
                 for line in block["lines"]:
                     line_parts = []
                     for span in line.get("spans", []):
@@ -70,18 +123,29 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         g = (color >> 8) & 255
                         b = color & 255
 
-                        # Distinct Red, Green, Blue, or high-saturation non-black text
+                        # Distinct Red, Green, Blue text
                         is_red = (r > 130 and g < 110 and b < 110)
                         is_green = (g > 130 and r < 110 and b < 120)
                         is_blue = (b > 150 and r < 110 and g < 140)
                         is_colored = is_red or is_green or is_blue or (max(r, g, b) - min(r, g, b) > 60 and max(r, g, b) > 90)
+
+                        # Check if span is covered by any Yellow/Highlight rectangle or annotation
+                        is_under_highlight = False
+                        span_rect = pymupdf.Rect(span.get("bbox", [0, 0, 0, 0]))
+                        if not span_rect.is_empty and highlight_rects:
+                            span_area = span_rect.get_area()
+                            for hr in highlight_rects:
+                                intersect = span_rect & hr
+                                if not intersect.is_empty and (span_area <= 0 or (intersect.get_area() / max(1.0, span_area) > 0.15)):
+                                    is_under_highlight = True
+                                    break
 
                         font_lower = span.get("font", "").lower()
                         flags = span.get("flags", 0)
                         is_bold = ("bold" in font_lower or "black" in font_lower or "heavy" in font_lower or (flags & 2 != 0) or (flags & 16 != 0))
                         is_italic = ("italic" in font_lower or "oblique" in font_lower or (flags & 1 != 0))
 
-                        if is_colored:
+                        if is_under_highlight or is_colored:
                             line_parts.append(f"{text} [COLOR_MARK]")
                         elif is_bold:
                             line_parts.append(f"{text} [BOLD_MARK]")
@@ -140,7 +204,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
     )
 
     # Split document into segments or questions
-    split_pattern = r'\n(?=(?:(?:Câu|CÂU|Question)\s*\d+|\b\d{1,4}[\.\)]\s+[A-Z\u00C0-\u1EF9\(]|(?:BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*[0-9IVXLCDMivxlcdm]+))'
+    split_pattern = r'\n(?=(?:(?:Câu|CÂU|Question|Bài|BAI)\s*\d+|\b\d{1,4}[\.\)]\s+[A-Z\u00C0-\u1EF9\(a-z]|(?:BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*[0-9IVXLCDMivxlcdm]+))'
     blocks = re.split(split_pattern, '\n' + normalized, flags=re.IGNORECASE)
 
     current_chapter = "Bài 1"
@@ -149,7 +213,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
 
     for raw_block in blocks:
         block = raw_block.strip()
-        if not block or len(block) < 10:
+        if not block or len(block) < 8:
             continue
 
         # Check if block has Chapter / Lesson title
@@ -173,19 +237,20 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
                 current_chapter = f"{kw_name} {kw_num}"
             current_chapter = clean_text(current_chapter)[:120]
 
-        # Verify block has 4 options A, B, C, D
+        # Verify block has options A, B, C (and optionally D)
         has_a = re.search(r'(?:^|\n|\s)[A][\.\)\:\-\/]\s*|(?:\n|\s)\(A\)\s*', block)
         has_b = re.search(r'(?:^|\n|\s)[B][\.\)\:\-\/]\s*|(?:\n|\s)\(B\)\s*', block)
         has_c = re.search(r'(?:^|\n|\s)[C][\.\)\:\-\/]\s*|(?:\n|\s)\(C\)\s*', block)
         has_d = re.search(r'(?:^|\n|\s)[D][\.\)\:\-\/]\s*|(?:\n|\s)\(D\)\s*', block)
 
-        if not (has_a and has_b and has_c and has_d):
+        if not has_a or not has_b:
             has_a = re.search(r'(?:^|\n|\s)[a][\.\)\:\-\/]\s*', block)
             has_b = re.search(r'(?:^|\n|\s)[b][\.\)\:\-\/]\s*', block)
             has_c = re.search(r'(?:^|\n|\s)[c][\.\)\:\-\/]\s*', block)
             has_d = re.search(r'(?:^|\n|\s)[d][\.\)\:\-\/]\s*', block)
 
-        if not (has_a and has_b and has_c and has_d):
+        # Fallback for slides with repeated option labels or 3 options
+        if not (has_a and has_b):
             continue
 
         q_start = re.match(r'^(?:(?:Câu|CÂU|Question|Bài)\s*)?(\d{1,4})[\s\:\.\-\)]*', block, flags=re.IGNORECASE)
@@ -196,7 +261,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         content_raw = block[:has_a.start()].strip()
         content_lines = [
             l for l in content_raw.split('\n')
-            if not re.match(r'^\s*(?:BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*[0-9IVXLCDMivxlcdm]+', l.strip(), re.IGNORECASE)
+            if not re.match(r'^\s*(?:TRẮC\s*NGHIỆM|BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*[0-9IVXLCDMivxlcdm]*', l.strip(), re.IGNORECASE)
         ]
         content = '\n'.join(content_lines).strip()
         content = re.sub(r'^(?:(?:Câu|CÂU|Question|Bài)\s*)?\d{1,4}[\s\:\.\-\)]*', '', content, flags=re.IGNORECASE).strip()
@@ -210,14 +275,26 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         general_exp = clean_text(exp_match.group(1)) if exp_match else ""
 
         # Option boundaries
-        end_d = ans_match.start() if ans_match else (exp_match.start() if exp_match else len(block))
+        end_boundary = ans_match.start() if ans_match else (exp_match.start() if exp_match else len(block))
 
-        opt_a_raw = block[has_a.end():has_b.start()]
-        opt_b_raw = block[has_b.end():has_c.start()]
-        opt_c_raw = block[has_c.end():has_d.start()]
-        opt_d_raw = block[has_d.end():end_d]
+        if has_a and has_b and has_c and has_d:
+            opt_a_raw = block[has_a.end():has_b.start()]
+            opt_b_raw = block[has_b.end():has_c.start()]
+            opt_c_raw = block[has_c.end():has_d.start()]
+            opt_d_raw = block[has_d.end():end_boundary]
+        elif has_a and has_b and has_c and not has_d:
+            # 3-option question
+            opt_a_raw = block[has_a.end():has_b.start()]
+            opt_b_raw = block[has_b.end():has_c.start()]
+            opt_c_raw = block[has_c.end():end_boundary]
+            opt_d_raw = "Tất cả các đáp án trên đều sai"
+        else:
+            opt_a_raw = block[has_a.end():has_b.start()]
+            opt_b_raw = block[has_b.end():end_boundary]
+            opt_c_raw = "Không có phương án phù hợp"
+            opt_d_raw = "Tất cả các đáp án trên đều sai"
 
-        # Check for Colored Text (e.g. Red text in user's image)
+        # Check for Colored / Yellow Highlighted Text (via [COLOR_MARK])
         colored_opts = [key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)] if '[COLOR_MARK]' in r]
         
         # Check for Bold Text
@@ -251,7 +328,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
                 exp_target_match = exp_ans_search.group(1).upper()
 
         # Resolve correct answer priority:
-        # 1. Option marked in RED / DISTINCT COLOR (like user's image)
+        # 1. Option highlighted in YELLOW / RED / DISTINCT COLOR
         # 2. Option with Checkmark ✓ / ✔ / [x]
         # 3. Explicit "Đáp án: A"
         # 4. Single Bolded Option
@@ -259,6 +336,8 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         # 6. Explanation text mentions target answer
         # 7. Global Answer table
         if len(colored_opts) == 1:
+            correct_answer = colored_opts[0]
+        elif len(colored_opts) > 1:
             correct_answer = colored_opts[0]
         elif len(checkmark_opts) == 1:
             correct_answer = checkmark_opts[0]
@@ -275,7 +354,12 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         else:
             correct_answer = "A"
 
-        if opt_a and opt_b and opt_c and opt_d:
+        if opt_a and opt_b:
+            if not opt_c:
+                opt_c = "Không có phương án phù hợp"
+            if not opt_d:
+                opt_d = "Tất cả các đáp án trên đều sai"
+
             if general_exp:
                 def make_exp_from_general(letter, val, is_corr):
                     if is_corr:
