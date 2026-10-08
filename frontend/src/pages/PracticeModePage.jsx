@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { fetchQuizDetail } from '../services/api';
+import FormattedContent from '../components/FormattedContent';
 
 export default function PracticeModePage() {
   const { shareCode } = useParams();
@@ -607,7 +608,7 @@ export default function PracticeModePage() {
         {/* Question Content Box */}
         <div className="mb-5 sm:mb-6">
           <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 leading-relaxed">
-            {currentQ.content}
+            <FormattedContent text={currentQ.content} />
           </h1>
         </div>
 
@@ -671,7 +672,7 @@ export default function PracticeModePage() {
                   <div className="flex-1 min-w-0 pt-0.5">
                     <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
                       <strong className={`mr-1.5 ${letterStyle}`}>{optKey}.</strong>
-                      {opt.text}
+                      <FormattedContent text={opt.text} />
                     </span>
                   </div>
                 </div>
@@ -696,7 +697,7 @@ export default function PracticeModePage() {
                       <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50 mt-1.5">
                         <strong className="text-slate-800 dark:text-slate-200">💡 Giải thích: </strong>
                         {opt.exp ? (
-                          opt.exp
+                          <FormattedContent text={opt.exp} />
                         ) : isCorrect ? (
                           'Lựa chọn chính xác theo nội dung kiến thức của đề bài.'
                         ) : (

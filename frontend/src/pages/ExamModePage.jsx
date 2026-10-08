@@ -27,6 +27,7 @@ import confetti from 'canvas-confetti';
 import { fetchQuizDetail, submitQuizAttempt } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import OptionExplanationCard from '../components/OptionExplanationCard';
+import FormattedContent from '../components/FormattedContent';
 
 const ANIMAL_NAMES = [
   { name: 'Gấu Mèo', icon: '🦝' },
@@ -798,7 +799,7 @@ export default function ExamModePage() {
                       </span>
                     )}
                     <h3 className="text-base font-bold text-slate-900 dark:text-white pt-0.5">
-                      {item.content}
+                      <FormattedContent text={item.content} />
                     </h3>
                   </div>
                 </div>
@@ -894,7 +895,7 @@ export default function ExamModePage() {
             </div>
 
             <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed mb-5 sm:mb-6">
-              {currentQ.content}
+              <FormattedContent text={currentQ.content} />
             </h3>
 
             <div className="space-y-3">
@@ -924,7 +925,7 @@ export default function ExamModePage() {
                     </span>
                     <span className="text-sm sm:text-base pt-0.5 flex-1 leading-relaxed">
                       <strong className="mr-1.5">{opt.key}.</strong>
-                      {opt.text}
+                      <FormattedContent text={opt.text} />
                     </span>
                   </button>
                 );

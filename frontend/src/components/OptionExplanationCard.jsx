@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import FormattedContent from './FormattedContent';
 
 export default function OptionExplanationCard({
   question,
@@ -60,7 +61,7 @@ export default function OptionExplanationCard({
               <div className="flex-1 min-w-0 pt-0.5">
                 <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
                   <strong className={`mr-1.5 ${letterStyle}`}>{opt.key}.</strong>
-                  {opt.text}
+                  <FormattedContent text={opt.text} />
                 </span>
               </div>
             </div>
@@ -84,7 +85,7 @@ export default function OptionExplanationCard({
               <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50 mt-1">
                 <strong className="text-slate-800 dark:text-slate-200">💡 Giải thích: </strong>
                 {opt.exp ? (
-                  opt.exp
+                  <FormattedContent text={opt.exp} />
                 ) : isCorrect ? (
                   'Lựa chọn chính xác theo nội dung đề bài.'
                 ) : (

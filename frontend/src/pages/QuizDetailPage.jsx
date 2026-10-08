@@ -54,6 +54,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import ShareModal from '../components/ShareModal';
 import ExportPdfModal from '../components/ExportPdfModal';
+import FormattedContent from '../components/FormattedContent';
 
 export default function QuizDetailPage() {
   const { shareCode } = useParams();
@@ -1066,9 +1067,9 @@ export default function QuizDetailPage() {
                                     <span className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 font-black text-xs flex items-center justify-center shrink-0 mt-0.5 border border-indigo-200/80 dark:border-indigo-900/40">
                                       {qIdx + 1}
                                     </span>
-                                    <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white leading-relaxed flex-1">
-                                      {q.content}
-                                    </p>
+                                    <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white leading-relaxed flex-1">
+                                      <FormattedContent text={q.content} />
+                                    </div>
                                   </div>
 
                                   {canEdit && (
@@ -1094,16 +1095,16 @@ export default function QuizDetailPage() {
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:pl-9">
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'A' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> {q.option_a}
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> <FormattedContent text={q.option_a} />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'B' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> {q.option_b}
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> <FormattedContent text={q.option_b} />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'C' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> {q.option_c}
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> <FormattedContent text={q.option_c} />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'D' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> {q.option_d}
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> <FormattedContent text={q.option_d} />
                                   </div>
                                 </div>
                               </div>
