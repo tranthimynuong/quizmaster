@@ -1,0 +1,643 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
+import {
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Check,
+  X,
+  HelpCircle,
+  Shuffle,
+  Grid,
+  BookOpen,
+  ArrowLeft,
+  FileText,
+  GraduationCap,
+  Sparkles,
+  CheckSquare,
+  Square
+} from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { fetchQuizDetail } from '../services/api';
+
+export default function PracticeModePage() {
+  const { shareCode } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const targetChapterParam = searchParams.get('chapter');
+  const initialMode = searchParams.get('mode') === 'study' ? 'study' : 'practice';
+  const navigate = useNavigate();
+
+  const [quiz, setQuiz] = useState(null);
+  const [allQuestions, setAllQuestions] = useState([]);
+  const [questions, setQuestions] = useState([]);
+  const [chapters, setChapters] = useState([]);
+  const [selectedChapters, setSelectedChapters] = useState({});
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [userAnswers, setUserAnswers] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [practiceMode, setPracticeMode] = useState(initialMode);
+
+  // Configuration State
+  const [isConfiguring, setIsConfiguring] = useState(!targetChapterParam);
+  const [selectedCount, setSelectedCount] = useState(50);
+  const [orderMode, setOrderMode] = useState('shuffle');
+  const [showExplanationToggle, setShowExplanationToggle] = useState(true);
+  const [isQuestionPickerOpen, setIsQuestionPickerOpen] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await fetchQuizDetail(shareCode);
+        setQuiz(data);
+        const qList = data.questions || [];
+        setAllQuestions(qList);
+
+        const chList = data.chapters || [];
+        const chMap = {};
+        if (chList.length === 0) {
+          const uniqueCh = [...new Set(qList.map(q => q.chapter || 'Bài 1'))];
+          setChapters(uniqueCh);
+          uniqueCh.forEach(c => { chMap[c] = true; });
+        } else {
+          setChapters(chList);
+          chList.forEach(c => { chMap[c] = true; });
+        }
+        setSelectedChapters(chMap);
+
+        // If targetChapterParam is provided in URL (e.g. from quiz detail page [Học] or [Luyện tập] button)
+        if (targetChapterParam) {
+          const filteredByChapter = qList.filter(q => (q.chapter || 'Bài 1') === targetChapterParam);
+          if (filteredByChapter.length > 0) {
+            setQuestions(filteredByChapter);
+            setIsConfiguring(false);
+          } else {
+            setQuestions(qList);
+          }
+        } else {
+          const defaultCount = Math.min(50, qList.length);
+          setSelectedCount(defaultCount);
+        }
+      } catch (err) {
+        setError(err.message || 'Lỗi khi tải bộ đề');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [shareCode, targetChapterParam]);
+
+  const toggleChapter = (ch) => {
+    setSelectedChapters(prev => ({
+      ...prev,
+      [ch]: !prev[ch]
+    }));
+  };
+
+  const selectAllChapters = (val) => {
+    const updated = {};
+    chapters.forEach(c => { updated[c] = val; });
+    setSelectedChapters(updated);
+  };
+
+  const eligibleQuestions = allQuestions.filter(q => {
+    const ch = q.chapter || 'Bài 1';
+    return !!selectedChapters[ch];
+  });
+
+  const handleStartPractice = () => {
+    if (eligibleQuestions.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 Bài để luyện tập!');
+      return;
+    }
+
+    const countToPick = Math.min(selectedCount, eligibleQuestions.length);
+
+    let chosen = [];
+    if (orderMode === 'shuffle') {
+      chosen = [...eligibleQuestions].sort(() => Math.random() - 0.5).slice(0, countToPick);
+    } else {
+      chosen = eligibleQuestions.slice(0, countToPick);
+    }
+
+    setQuestions(chosen);
+    setCurrentIndex(0);
+    setUserAnswers({});
+    setIsConfiguring(false);
+  };
+
+  useEffect(() => {
+    if (isConfiguring) return;
+
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
+      const key = e.key.toUpperCase();
+      if (['A', 'B', 'C', 'D'].includes(key) && currentQ) {
+        handleSelectOption(key);
+      } else if (key === '1') handleSelectOption('A');
+      else if (key === '2') handleSelectOption('B');
+      else if (key === '3') handleSelectOption('C');
+      else if (key === '4') handleSelectOption('D');
+      else if (e.key === 'ArrowRight' && currentIndex < questions.length - 1) {
+        handleNext();
+      } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
+        handlePrev();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isConfiguring, currentIndex, questions, userAnswers]);
+
+  const currentQ = questions[currentIndex];
+  const selectedOption = currentQ ? userAnswers[currentQ.id] : null;
+  const isAnswered = selectedOption !== undefined && selectedOption !== null;
+
+  const handleSelectOption = (optionKey) => {
+    if (!currentQ) return;
+    
+    setUserAnswers(prev => ({
+      ...prev,
+      [currentQ.id]: optionKey
+    }));
+
+    if (optionKey.toUpperCase() === currentQ.correct_answer.toUpperCase()) {
+      confetti({
+        particleCount: 35,
+        spread: 55,
+        origin: { y: 0.75 }
+      });
+    }
+  };
+
+  const handleNext = () => {
+    if (currentIndex < questions.length - 1) {
+      setCurrentIndex(prev => prev + 1);
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(prev => prev - 1);
+    }
+  };
+
+  const handleReset = () => {
+    if (window.confirm('Bạn có muốn cấu hình lại phiên luyện tập không?')) {
+      setIsConfiguring(true);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-sm font-medium text-slate-500">Đang chuẩn bị bộ câu hỏi...</p>
+      </div>
+    );
+  }
+
+  if (error || !quiz || allQuestions.length === 0) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-20 text-center">
+        <div className="p-8 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <HelpCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Không có câu hỏi luyện tập</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">{error || 'Bộ đề này chưa có câu hỏi nào.'}</p>
+          <Link
+            to={`/quiz/${shareCode}`}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Về chi tiết bộ đề</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // PRE-PRACTICE CONFIGURATION SCREEN
+  if (isConfiguring) {
+    const totalEligible = eligibleQuestions.length;
+    const countOptions = [20, 30, 40, 50, 100].filter(c => c < totalEligible);
+
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-10">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm">
+          
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <GraduationCap className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">
+                Cấu Hình Phiên Luyện Tập
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 line-clamp-1">{quiz.title}</p>
+            </div>
+          </div>
+
+          <div className="space-y-5 my-6">
+            
+            {/* Chapter Selection */}
+            {chapters.length > 1 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Chọn các Bài / Chương muốn luyện tập:
+                  </label>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                    <button type="button" onClick={() => selectAllChapters(true)} className="hover:underline">
+                      Chọn tất cả
+                    </button>
+                    <span>•</span>
+                    <button type="button" onClick={() => selectAllChapters(false)} className="hover:underline">
+                      Bỏ chọn
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {chapters.map((ch) => {
+                    const countInChapter = allQuestions.filter(q => (q.chapter || 'Bài 1') === ch).length;
+                    const isChecked = !!selectedChapters[ch];
+                    return (
+                      <div
+                        key={ch}
+                        onClick={() => toggleChapter(ch)}
+                        className={`cursor-pointer flex items-center justify-between p-2.5 rounded-xl border transition-all text-xs ${
+                          isChecked
+                            ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 text-indigo-950 dark:text-indigo-100 font-semibold'
+                            : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          {isChecked ? <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" /> : <Square className="w-4 h-4 text-slate-400 shrink-0" />}
+                          <span className="truncate">{ch}</span>
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white dark:bg-slate-700 font-mono shrink-0 ml-1">
+                          {countInChapter} câu
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Question Count Selection */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Số lượng câu hỏi muốn học ({totalEligible} câu khả dụng):
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                {countOptions.map(cnt => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => setSelectedCount(cnt)}
+                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+                      selectedCount === cnt
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {cnt} câu
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedCount(totalEligible)}
+                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+                    selectedCount === totalEligible
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Tất cả ({totalEligible} câu)
+                </button>
+              </div>
+            </div>
+
+            {/* Ordering Mode */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                Chế độ hiển thị câu hỏi:
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOrderMode('shuffle')}
+                  className={`p-3 rounded-2xl border text-left transition-all ${
+                    orderMode === 'shuffle'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 text-indigo-950 dark:text-indigo-100 ring-1 ring-indigo-600'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="font-bold text-xs sm:text-sm mb-0.5">Xáo trộn ngẫu nhiên</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">Trộn lộn xộn các bài</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOrderMode('sequential')}
+                  className={`p-3 rounded-2xl border text-left transition-all ${
+                    orderMode === 'sequential'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-600 text-indigo-950 dark:text-indigo-100 ring-1 ring-indigo-600'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="font-bold text-xs sm:text-sm mb-0.5">Theo thứ tự đề gốc</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">Tuần tự từng bài</div>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Link
+              to={`/quiz/${quiz.share_code}`}
+              className="px-5 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              Hủy
+            </Link>
+            <button
+              onClick={handleStartPractice}
+              disabled={totalEligible === 0}
+              className="flex-1 py-3 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md shadow-indigo-500/20 active:scale-95 transition-all disabled:opacity-40"
+            >
+              Bắt đầu Luyện tập ({Math.min(selectedCount, totalEligible)} câu)
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  // ACTIVE PRACTICE SCREEN
+  const optionList = [
+    { key: 'A', text: currentQ?.option_a, exp: currentQ?.explanation_a },
+    { key: 'B', text: currentQ?.option_b, exp: currentQ?.explanation_b },
+    { key: 'C', text: currentQ?.option_c, exp: currentQ?.explanation_c },
+    { key: 'D', text: currentQ?.option_d, exp: currentQ?.explanation_d },
+  ];
+
+  const correctKey = (currentQ?.correct_answer || '').toUpperCase();
+  const isStudy = practiceMode === 'study';
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      
+      <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-6 gap-2 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <Link
+            to={`/quiz/${quiz.share_code}`}
+            className="p-1.5 rounded-lg hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
+            title="Thoát"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+
+          <button
+            onClick={() => setIsQuestionPickerOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 font-bold text-xs sm:text-sm border border-slate-200 dark:border-slate-700 transition-colors"
+            title="Bấm để mở danh sách câu hỏi"
+          >
+            <Grid className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Câu {currentIndex + 1}/{questions.length}</span>
+          </button>
+          
+          {currentQ.chapter && (
+            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg truncate max-w-[170px]">
+              {currentQ.chapter}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold">
+            <button
+              onClick={() => setPracticeMode('study')}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                isStudy
+                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              Học
+            </button>
+            <button
+              onClick={() => setPracticeMode('practice')}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                !isStudy
+                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              Luyện tập
+            </button>
+          </div>
+
+          <button
+            onClick={handleReset}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+            title="Cấu hình lại"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {isStudy && (
+        <div className="mb-4 px-3.5 py-2 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 text-xs text-emerald-800 dark:text-emerald-300 font-medium flex items-center justify-between">
+          <span>📖 Chế độ Học: Đáp án đúng và giải thích được hiển thị sẵn để ôn bài.</span>
+        </div>
+      )}
+
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 leading-relaxed">
+          {currentQ.content}
+        </h1>
+      </div>
+
+      {/* Options List */}
+      <div className="space-y-3 sm:space-y-3.5 mb-8">
+        {optionList.map((opt) => {
+          const optKey = opt.key;
+          const isSelected = selectedOption?.toUpperCase() === optKey;
+          const isCorrect = optKey === correctKey;
+          const showAnswer = isStudy || isAnswered;
+
+          let cardStyle = 'bg-slate-50/70 hover:bg-slate-100/80 dark:bg-slate-900/60 dark:hover:bg-slate-800/80 border-transparent';
+          let letterStyle = 'text-slate-700 dark:text-slate-300 font-semibold';
+          let textStyle = 'text-slate-800 dark:text-slate-200 font-medium';
+
+          if (showAnswer) {
+            if (isCorrect) {
+              cardStyle = 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60';
+              letterStyle = 'text-emerald-800 dark:text-emerald-200 font-bold';
+              textStyle = 'text-emerald-900 dark:text-emerald-100 font-semibold';
+            } else if (isSelected && !isCorrect && !isStudy) {
+              cardStyle = 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/60';
+              letterStyle = 'text-rose-800 dark:text-rose-200 font-bold';
+              textStyle = 'text-rose-900 dark:text-rose-100 font-semibold';
+            } else {
+              cardStyle = 'bg-slate-50/40 dark:bg-slate-900/40 border-transparent';
+              letterStyle = 'text-slate-500 dark:text-slate-400 font-medium';
+              textStyle = 'text-slate-700 dark:text-slate-300 font-normal';
+            }
+          }
+
+          return (
+            <div
+              key={optKey}
+              onClick={() => {
+                if (!isStudy) handleSelectOption(optKey);
+              }}
+              className={`cursor-pointer rounded-2xl p-4 sm:p-4.5 border transition-all duration-200 ${cardStyle}`}
+            >
+              <div className="flex items-start gap-2">
+                <span className={`text-sm sm:text-base shrink-0 ${letterStyle}`}>
+                  {optKey}.
+                </span>
+                <span className={`text-sm sm:text-base leading-snug flex-1 ${textStyle}`}>
+                  {opt.text}
+                </span>
+              </div>
+
+              {showAnswer && (
+                <div className="mt-2.5 pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
+                  {isCorrect && (
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-1">
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>{isStudy ? 'Đáp án đúng' : 'Câu trả lời chính xác'}</span>
+                    </div>
+                  )}
+
+                  {isSelected && !isCorrect && !isStudy && (
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400 mb-1">
+                      <X className="w-4 h-4 stroke-[3]" />
+                      <span>Chưa đúng lắm!</span>
+                    </div>
+                  )}
+
+                  {showExplanationToggle && (
+                    <p className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed pl-0.5">
+                      {opt.exp ? (
+                        opt.exp
+                      ) : isCorrect ? (
+                        'Lựa chọn chính xác theo nội dung kiến thức của đề bài.'
+                      ) : (
+                        'Phương án này chưa chính xác theo lý thuyết đề bài.'
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Bottom Bar: Action buttons */}
+      <div className="flex items-center justify-between pt-2">
+        <button
+          onClick={() => setShowExplanationToggle(!showExplanationToggle)}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition-all ${
+            showExplanationToggle
+              ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+              : 'text-slate-500 border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4 text-slate-500" />
+          <span>Giải thích</span>
+        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePrev}
+            disabled={currentIndex === 0}
+            className="px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs sm:text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Trước
+          </button>
+
+          <button
+            onClick={handleNext}
+            disabled={currentIndex === questions.length - 1}
+            className="px-5 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold shadow-sm shadow-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Tiếp theo
+          </button>
+        </div>
+      </div>
+
+      {/* QUESTION PICKER MODAL */}
+      {isQuestionPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[80vh]">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <Grid className="w-4 h-4 text-indigo-500" />
+                <span>Chọn nhanh câu hỏi ({questions.length} câu)</span>
+              </h3>
+              <button
+                onClick={() => setIsQuestionPickerOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <CloseIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 overflow-y-auto pr-1 flex-1 py-1">
+              {questions.map((q, idx) => {
+                const ans = userAnswers[q.id];
+                const isCurrent = idx === currentIndex;
+                const isRight = ans && ans.toUpperCase() === q.correct_answer?.toUpperCase();
+                const isWrong = ans && ans.toUpperCase() !== q.correct_answer?.toUpperCase();
+
+                let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
+                if (isRight) cls = 'bg-emerald-500 text-white font-bold';
+                else if (isWrong) cls = 'bg-rose-500 text-white font-bold';
+
+                if (isCurrent) cls += ' ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 font-extrabold';
+
+                return (
+                  <button
+                    key={q.id || idx}
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setIsQuestionPickerOpen(false);
+                    }}
+                    className={`h-9 rounded-xl text-xs font-semibold flex items-center justify-center transition-all ${cls}`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+              <span>Đã làm: {Object.keys(userAnswers).length}/{questions.length} câu</span>
+              <button
+                onClick={() => setIsQuestionPickerOpen(false)}
+                className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-bold"
+              >
+                Đóng
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
