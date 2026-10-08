@@ -7,4 +7,11 @@ backend_dir = os.path.join(current_dir, "..", "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.main import app
+from app.main import app, run_database_migrations_and_seed
+
+# Ensure database tables and columns exist on cold start
+try:
+    run_database_migrations_and_seed()
+except Exception:
+    pass
+

@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Any
 import logging
+import re
 from ..database import get_db
-from ..models import Quiz, Question, Subject
+from ..models import Quiz, Question, Subject, User
 from ..services.pdf_parser import parse_pdf_to_questions
 from ..routes.quizzes import generate_share_code, filename_to_chapter
+from ..auth import get_current_user_optional
 from ..schemas import QuizDetailOut
 
 logger = logging.getLogger(__name__)
@@ -28,8 +30,9 @@ async def parse_pdf_quiz(
     files: List[UploadFile] = File(...),
     title: Optional[str] = Form(None),
     subject_id: Optional[str] = Form(None),
-    auto_save: Optional[bool] = Form(True),
-    is_public: Optional[bool] = Form(True),
+    auto_save: Optional[Any] = Form(True),
+    is_public: Optional[Any] = Form(True),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
@@ -87,7 +90,22 @@ async def parse_pdf_quiz(
     if subject_id and str(subject_id).strip().isdigit():
         parsed_subject_id = int(subject_id.strip())
 
-    if auto_save:
+    # Parse boolean flags safely
+    is_pub_bool = True
+    if is_public is not None:
+        if isinstance(is_public, bool):
+            is_pub_bool = is_public
+        elif str(is_public).strip().lower() in ["false", "0", "no"]:
+            is_pub_bool = False
+
+    auto_save_bool = True
+    if auto_save is not None:
+        if isinstance(auto_save, bool):
+            auto_save_bool = auto_save
+        elif str(auto_save).strip().lower() in ["false", "0", "no"]:
+            auto_save_bool = False
+
+    if auto_save_bool:
         try:
             share_code = generate_share_code(quiz_title, db)
             desc_files = ", ".join(file_names[:3]) + (f" và {len(file_names)-3} file khác" if len(file_names) > 3 else "")
@@ -97,7 +115,8 @@ async def parse_pdf_quiz(
                 title=quiz_title,
                 description=desc_str,
                 subject_id=parsed_subject_id,
-                is_public=bool(is_public),
+                created_by_id=current_user.id if current_user else None,
+                is_public=bool(is_pub_bool),
                 share_code=share_code
             )
             db.add(quiz)
