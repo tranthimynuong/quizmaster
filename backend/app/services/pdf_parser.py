@@ -30,7 +30,7 @@ def extract_text_from_pdf_pypdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                 continue
 
         raw = "\n\n".join(full_text)
-        return unicodedata.normalize('NFC', raw)
+        return unicodedata.normalize('NFC', sanitize_str(raw))
     except Exception as e:
         logger.error(f"Error reading PDF with pypdf: {e}")
         return ""
@@ -129,6 +129,9 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         text = span.get("text", "")
                         if not text:
                             continue
+                        text = sanitize_str(text)
+                        if not text:
+                            continue
 
                         color = span.get("color", 0)
                         r = (color >> 16) & 255
@@ -171,10 +174,6 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                                         pr, pg, pb = pixel[0], pixel[1], pixel[2]
                                         sample_total += 1
 
-                                        # Yellow highlight: High R, High G, Low B (e.g. 255, 255, 0)
-                                        # Lime/Green highlight: High G, Medium R/B
-                                        # Cyan highlight: High G, High B, Low R
-                                        # Orange highlight: High R, Medium G, Low B
                                         is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
                                         is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
                                         is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
@@ -207,13 +206,27 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
             full_text.append("\n".join(page_lines))
 
         raw = "\n\n".join(full_text)
-        return unicodedata.normalize('NFC', raw)
+        return unicodedata.normalize('NFC', sanitize_str(raw))
     except Exception as e:
         logger.warning(f"PyMuPDF rich extraction failed ({e}), falling back to pypdf.")
         return extract_text_from_pdf_pypdf(pdf_bytes, max_pages)
 
 
+def sanitize_str(s: Any) -> str:
+    """Removes NUL bytes (0x00) and unprintable C0 control characters to prevent PostgreSQL insertion errors."""
+    if not s:
+        return ""
+    if not isinstance(s, str):
+        s = str(s)
+    s = s.replace('\x00', '').replace('\u0000', '')
+    s = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', s)
+    return s
+
+
 def clean_text(s: str) -> str:
+    if not s:
+        return ""
+    s = sanitize_str(s)
     s = re.sub(r'\[(?:COLOR_MARK|BOLD_MARK|ITALIC_MARK)\]', '', s)
     return re.sub(r'[\r\n\t]+', ' ', s).strip()
 
@@ -221,11 +234,12 @@ def clean_text(s: str) -> str:
 def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
     """Ultra-resilient Parser with color, bold, italic, and checkmark answer detection."""
     text = extract_rich_text_from_pdf(pdf_bytes)
-    if not text.strip():
+    if not text or not text.strip():
         return []
 
     normalized = re.sub(r'\r\n', '\n', text)
     normalized = re.sub(r'\t', ' ', normalized)
+    normalized = sanitize_str(normalized)
 
     # Detect global answer keys ONLY in explicit answer sections
     global_answers = {}
@@ -424,17 +438,17 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
                 exp_d = reasoning["explanation_d"]
 
             questions.append({
-                "chapter": current_chapter,
-                "content": content,
-                "option_a": opt_a,
-                "option_b": opt_b,
-                "option_c": opt_c,
-                "option_d": opt_d,
-                "correct_answer": correct_answer,
-                "explanation_a": exp_a,
-                "explanation_b": exp_b,
-                "explanation_c": exp_c,
-                "explanation_d": exp_d,
+                "chapter": sanitize_str(current_chapter),
+                "content": sanitize_str(content),
+                "option_a": sanitize_str(opt_a),
+                "option_b": sanitize_str(opt_b),
+                "option_c": sanitize_str(opt_c),
+                "option_d": sanitize_str(opt_d),
+                "correct_answer": sanitize_str(correct_answer),
+                "explanation_a": sanitize_str(exp_a),
+                "explanation_b": sanitize_str(exp_b),
+                "explanation_c": sanitize_str(exp_c),
+                "explanation_d": sanitize_str(exp_d),
             })
 
     return questions

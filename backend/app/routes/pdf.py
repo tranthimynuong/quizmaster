@@ -12,6 +12,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Processing"])
 
+def sanitize_sql_str(val: Optional[str], default: str = "") -> str:
+    """Removes null bytes (0x00) and problematic control characters from strings prior to SQL insertion."""
+    if val is None:
+        return default
+    if not isinstance(val, str):
+        val = str(val)
+    val = val.replace('\x00', '').replace('\u0000', '')
+    val = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', val)
+    return val.strip()
+
+
 @router.post("/parse")
 async def parse_pdf_quiz(
     files: List[UploadFile] = File(...),
@@ -63,11 +74,11 @@ async def parse_pdf_quiz(
         )
 
     # Determine quiz title from parameter or filename
-    quiz_title = title
-    if not quiz_title or not quiz_title.strip():
+    quiz_title = sanitize_sql_str(title)
+    if not quiz_title:
         if len(file_names) == 1:
             raw_name = file_names[0].rsplit('.', 1)[0]
-            quiz_title = f"Đề thi: {raw_name}"
+            quiz_title = sanitize_sql_str(f"Đề thi: {raw_name}")
         else:
             quiz_title = f"Bộ đề tổng hợp ({len(file_names)} phần)"
 
@@ -80,9 +91,11 @@ async def parse_pdf_quiz(
         try:
             share_code = generate_share_code(quiz_title, db)
             desc_files = ", ".join(file_names[:3]) + (f" và {len(file_names)-3} file khác" if len(file_names) > 3 else "")
+            desc_str = sanitize_sql_str(f"Bộ đề được trích xuất tự động từ {len(file_names)} file PDF ({desc_files}) gồm {len(all_parsed_questions)} câu hỏi.")
+            
             quiz = Quiz(
-                title=quiz_title.strip(),
-                description=f"Bộ đề được trích xuất tự động từ {len(file_names)} file PDF ({desc_files}) gồm {len(all_parsed_questions)} câu hỏi.",
+                title=quiz_title,
+                description=desc_str,
                 subject_id=parsed_subject_id,
                 is_public=bool(is_public),
                 share_code=share_code
@@ -92,20 +105,24 @@ async def parse_pdf_quiz(
 
             question_objects = []
             for q in all_parsed_questions:
+                c_ans = sanitize_sql_str(q.get("correct_answer", "A"), "A").upper()
+                if c_ans not in ["A", "B", "C", "D"]:
+                    c_ans = "A"
+
                 question_objects.append(
                     Question(
                         quiz_id=quiz.id,
-                        chapter=q.get("chapter", "Bài 1").strip(),
-                        content=q.get("content", "").strip(),
-                        option_a=q.get("option_a", "").strip(),
-                        option_b=q.get("option_b", "").strip(),
-                        option_c=q.get("option_c", "").strip(),
-                        option_d=q.get("option_d", "").strip(),
-                        correct_answer=q.get("correct_answer", "A").strip().upper(),
-                        explanation_a=q.get("explanation_a", ""),
-                        explanation_b=q.get("explanation_b", ""),
-                        explanation_c=q.get("explanation_c", ""),
-                        explanation_d=q.get("explanation_d", "")
+                        chapter=sanitize_sql_str(q.get("chapter"), "Bài 1"),
+                        content=sanitize_sql_str(q.get("content")),
+                        option_a=sanitize_sql_str(q.get("option_a")),
+                        option_b=sanitize_sql_str(q.get("option_b")),
+                        option_c=sanitize_sql_str(q.get("option_c")),
+                        option_d=sanitize_sql_str(q.get("option_d")),
+                        correct_answer=c_ans,
+                        explanation_a=sanitize_sql_str(q.get("explanation_a")),
+                        explanation_b=sanitize_sql_str(q.get("explanation_b")),
+                        explanation_c=sanitize_sql_str(q.get("explanation_c")),
+                        explanation_d=sanitize_sql_str(q.get("explanation_d"))
                     )
                 )
 
