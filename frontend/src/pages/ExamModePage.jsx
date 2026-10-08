@@ -24,6 +24,35 @@ import { fetchQuizDetail, submitQuizAttempt } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import OptionExplanationCard from '../components/OptionExplanationCard';
 
+const ANIMAL_NAMES = [
+  { name: 'Gấu Mèo', icon: '🦝' },
+  { name: 'Cua Đồng', icon: '🦀' },
+  { name: 'Mèo Con', icon: '🐱' },
+  { name: 'Cáo Tuyết', icon: '🦊' },
+  { name: 'Gấu Trúc', icon: '🐼' },
+  { name: 'Chim Cánh Cụt', icon: '🐧' },
+  { name: 'Sóc Chuột', icon: '🐿️' },
+  { name: 'Hải Cẩu', icon: '🦭' },
+  { name: 'Vịt Vàng', icon: '🦆' },
+  { name: 'Thỏ Ngọc', icon: '🐰' },
+  { name: 'Cú Mèo', icon: '🦉' },
+  { name: 'Cá Heo', icon: '🐬' },
+  { name: 'Sư Tử Nhỏ', icon: '🦁' },
+  { name: 'Hươu Cao Cổ', icon: '🦒' },
+  { name: 'Rùa Biển', icon: '🐢' },
+  { name: 'Cá Voi Xanh', icon: '🐋' },
+  { name: 'Ong Vàng', icon: '🐝' },
+  { name: 'Chuột Túi', icon: '🦘' },
+  { name: 'Khỉ Con', icon: '🐒' },
+  { name: 'Cừu Bông', icon: '🐑' },
+];
+
+function getRandomGuestAnimal() {
+  const chosen = ANIMAL_NAMES[Math.floor(Math.random() * ANIMAL_NAMES.length)];
+  const num = Math.floor(100 + Math.random() * 900);
+  return `${chosen.icon} ${chosen.name} #${num}`;
+}
+
 export default function ExamModePage() {
   const { shareCode } = useParams();
   const navigate = useNavigate();
@@ -37,8 +66,9 @@ export default function ExamModePage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState({});
   const [flaggedQuestions, setFlaggedQuestions] = useState({});
-  const [takerName, setTakerName] = useState(user?.full_name || user?.username || '');
-  const [nameError, setNameError] = useState('');
+  const [takerName, setTakerName] = useState(() => {
+    return user?.full_name || user?.username || getRandomGuestAnimal();
+  });
   
   // Custom Settings
   const [selectedQuestionCount, setSelectedQuestionCount] = useState(50);
@@ -119,12 +149,6 @@ export default function ExamModePage() {
 
   // Handle Starting Exam
   const handleStartExam = () => {
-    if (!isAuthenticated && !takerName.trim()) {
-      setNameError('Vui lòng nhập Họ và tên của bạn để bắt đầu làm bài và ghi nhận kết quả thi!');
-      return;
-    }
-    setNameError('');
-
     if (eligibleQuestions.length === 0) {
       alert('Vui lòng chọn ít nhất 1 Bài để thi thử!');
       return;
@@ -283,45 +307,31 @@ export default function ExamModePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Guest Notification Banner */}
-                <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-                    <span className="font-bold">Bạn đang thi với tư cách Khách:</span> Vui lòng nhập Họ & Tên bên dưới để bắt đầu. Bạn có thể{' '}
-                    <Link to="/login" className="font-bold underline text-indigo-600 dark:text-indigo-400 hover:text-indigo-700">
-                      Đăng nhập
-                    </Link>{' '}
-                    để tự động lưu kết quả vào tài khoản và theo dõi tiến độ.
+                {/* Guest Auto-Generated Animal Name Card */}
+                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800/70">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700/80 flex items-center justify-center text-xl shadow-xs shrink-0">
+                      {takerName.split(' ')[0] || '🐾'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wider">
+                        Bí danh ngẫu nhiên (Khách ẩn danh)
+                      </div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        {takerName}
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                    Họ và tên thí sinh <span className="text-rose-500 font-black">* (Bắt buộc)</span>:
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={takerName}
-                      onChange={(e) => {
-                        setTakerName(e.target.value);
-                        if (e.target.value.trim()) setNameError('');
-                      }}
-                      placeholder="Nhập họ và tên của bạn để ghi nhận kết quả..."
-                      className={`w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800 border rounded-xl text-sm font-medium focus:outline-none transition-all ${
-                        nameError
-                          ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-900 dark:text-rose-100 placeholder-rose-400'
-                          : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white'
-                      }`}
-                    />
-                  </div>
-                  {nameError && (
-                    <p className="mt-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{nameError}</span>
-                    </p>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setTakerName(getRandomGuestAnimal())}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 text-xs font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-slate-700 transition-colors shrink-0 shadow-xs"
+                    title="Đổi tên con vật khác"
+                  >
+                    <Shuffle className="w-3.5 h-3.5" />
+                    <span>Đổi tên</span>
+                  </button>
                 </div>
               </div>
             )}
