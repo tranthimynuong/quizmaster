@@ -264,6 +264,18 @@ export async function renameQuizChapter(identifier, oldChapterName, newChapterNa
   return res.json();
 }
 
+export async function deleteQuizChapter(identifier, chapterName) {
+  const res = await fetch(`${API_BASE}/quizzes/${encodeURIComponent(identifier)}/chapters?chapter_name=${encodeURIComponent(chapterName)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Lỗi khi xóa bài/chương.');
+  }
+  return res.json();
+}
+
 export async function updateQuizQuestion(identifier, questionId, questionData) {
   const res = await fetch(`${API_BASE}/quizzes/${encodeURIComponent(identifier)}/questions/${questionId}`, {
     method: 'PUT',

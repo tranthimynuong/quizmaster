@@ -45,6 +45,7 @@ import {
   deleteQuiz,
   updateQuiz,
   renameQuizChapter,
+  deleteQuizChapter,
   updateQuizQuestion,
   deleteQuizQuestion,
   fetchSubjects,
@@ -358,6 +359,20 @@ export default function QuizDetailPage() {
       setRenameChapterError(err.message || 'Lỗi khi đổi tên bài/chương.');
     } finally {
       setIsRenamingChapter(false);
+    }
+  };
+
+  const handleDeleteChapter = async (chName) => {
+    const count = quiz?.questions?.filter(q => (q.chapter || 'Bài 1') === chName)?.length || 0;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa bài "${chName}" cùng toàn bộ ${count} câu hỏi trong bài này không?\nThao tác này không thể hoàn tác.`)) {
+      return;
+    }
+
+    try {
+      await deleteQuizChapter(quiz.share_code, chName);
+      await loadQuiz();
+    } catch (err) {
+      alert(err.message || 'Lỗi khi xóa bài / chương.');
     }
   };
 
@@ -931,14 +946,24 @@ export default function QuizDetailPage() {
                             </span>
 
                             {canEdit && (
-                              <button
-                                onClick={() => openRenameChapterModal(chName)}
-                                className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline ml-1 font-semibold"
-                                title="Đổi tên bài / chương này để sửa lỗi chính tả"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                <span>Đổi tên</span>
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => openRenameChapterModal(chName)}
+                                  className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline ml-1 font-semibold"
+                                  title="Đổi tên bài / chương này để sửa lỗi chính tả"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Đổi tên</span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteChapter(chName)}
+                                  className="inline-flex items-center gap-1 text-[11px] text-rose-500 hover:text-rose-700 dark:text-rose-400 hover:underline ml-1.5 font-semibold"
+                                  title="Xóa toàn bộ bài này và các câu hỏi trong bài"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Xóa bài</span>
+                                </button>
+                              </>
                             )}
                           </div>
                           <h3

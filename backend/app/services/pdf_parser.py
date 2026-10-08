@@ -41,8 +41,9 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
     Extracts text while detecting:
     1. Red / Blue / Green / Colored font text.
     2. Yellow / Green / Cyan / Orange background highlight rectangles (vector drawings & PDF annotations).
-    3. Bold / Italic styles.
-    4. Multi-column layout reading order (Left column -> Right column).
+    3. Pixel-level rendered background highlights (from PowerPoint, Keynote, Canva, or Word exports).
+    4. Bold / Italic styles.
+    5. Multi-column layout reading order (Left column -> Right column).
     Injects [COLOR_MARK], [BOLD_MARK], [ITALIC_MARK] into the text stream.
     """
     try:
@@ -90,10 +91,21 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
             except Exception:
                 pass
 
+            # 3. Render Pixmap for pixel-level visual highlight verification
+            pix = None
+            scale_x = 1.0
+            scale_y = 1.0
+            try:
+                pix = page.get_pixmap(dpi=120)
+                scale_x = pix.width / max(1.0, page_w)
+                scale_y = pix.height / max(1.0, page_h)
+            except Exception:
+                pix = None
+
             page_dict = page.get_text("dict")
             blocks = [b for b in page_dict.get("blocks", []) if "lines" in b]
 
-            # 3. Multi-column Layout Detection (e.g. 2-column slides / exam papers)
+            # 4. Multi-column Layout Detection (e.g. 2-column slides / exam papers)
             mid_x = page_w * 0.48
             col1_blocks = [b for b in blocks if b["bbox"][0] < mid_x and b["bbox"][2] <= page_w * 0.65]
             col2_blocks = [b for b in blocks if b["bbox"][0] >= mid_x * 0.75]
@@ -129,7 +141,7 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         is_blue = (b > 150 and r < 110 and g < 140)
                         is_colored = is_red or is_green or is_blue or (max(r, g, b) - min(r, g, b) > 60 and max(r, g, b) > 90)
 
-                        # Check if span is covered by any Yellow/Highlight rectangle or annotation
+                        # Check if span is covered by any Vector/Annotation Highlight rectangle
                         is_under_highlight = False
                         span_rect = pymupdf.Rect(span.get("bbox", [0, 0, 0, 0]))
                         if not span_rect.is_empty and highlight_rects:
@@ -139,6 +151,41 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                                 if not intersect.is_empty and (span_area <= 0 or (intersect.get_area() / max(1.0, span_area) > 0.15)):
                                     is_under_highlight = True
                                     break
+
+                        # Check pixel sampling if not yet detected as highlighted
+                        if not is_under_highlight and pix and not span_rect.is_empty:
+                            px0 = max(0, min(pix.width - 1, int(span_rect.x0 * scale_x)))
+                            py0 = max(0, min(pix.height - 1, int(span_rect.y0 * scale_y)))
+                            px1 = max(0, min(pix.width, int(span_rect.x1 * scale_x)))
+                            py1 = max(0, min(pix.height, int(span_rect.y1 * scale_y)))
+
+                            if px1 > px0 and py1 > py0:
+                                step_x = max(1, (px1 - px0) // 8)
+                                step_y = max(1, (py1 - py0) // 3)
+                                sample_total = 0
+                                sample_highlight = 0
+
+                                for sy in range(py0, py1, step_y):
+                                    for sx in range(px0, px1, step_x):
+                                        pixel = pix.pixel(sx, sy)
+                                        pr, pg, pb = pixel[0], pixel[1], pixel[2]
+                                        sample_total += 1
+
+                                        # Yellow highlight: High R, High G, Low B (e.g. 255, 255, 0)
+                                        # Lime/Green highlight: High G, Medium R/B
+                                        # Cyan highlight: High G, High B, Low R
+                                        # Orange highlight: High R, Medium G, Low B
+                                        is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
+                                        is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
+                                        is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
+                                        is_px_orange = (pr > 190 and pg > 90 and pg < 185 and pb < 110)
+                                        is_px_pink = (pr > 190 and pb > 140 and pg < 170)
+
+                                        if is_px_yellow or is_px_green or is_px_cyan or is_px_orange or is_px_pink:
+                                            sample_highlight += 1
+
+                                if sample_total > 0 and (sample_highlight / sample_total) >= 0.15:
+                                    is_under_highlight = True
 
                         font_lower = span.get("font", "").lower()
                         flags = span.get("flags", 0)

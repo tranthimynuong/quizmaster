@@ -724,6 +724,38 @@ def rename_quiz_chapter(
     return {"success": True, "message": f"Đã đổi tên '{old_name}' thành '{new_name}' cho {updated_count} câu hỏi."}
 
 
+@router.delete("/{identifier}/chapters")
+def delete_quiz_chapter(
+    identifier: str,
+    chapter_name: str = Query(..., description="Tên bài / chương cần xóa"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Xóa toàn bộ một bài / chương cùng tất cả các câu hỏi thuộc bài đó khỏi bộ đề."""
+    quiz = db.query(Quiz).filter(Quiz.share_code == identifier).first()
+    if not quiz and identifier.isdigit():
+        quiz = db.query(Quiz).filter(Quiz.id == int(identifier)).first()
+
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bộ đề.")
+
+    if quiz.created_by_id and current_user:
+        if quiz.created_by_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền sửa bộ đề của người khác.")
+
+    ch_name = chapter_name.strip()
+    if not ch_name:
+        raise HTTPException(status_code=400, detail="Tên bài / chương không hợp lệ.")
+
+    deleted_count = db.query(Question).filter(
+        Question.quiz_id == quiz.id,
+        Question.chapter == ch_name
+    ).delete(synchronize_session=False)
+
+    db.commit()
+    return {"success": True, "message": f"Đã xóa thành công bài '{ch_name}' gồm {deleted_count} câu hỏi.", "deleted_count": deleted_count}
+
+
 @router.put("/{identifier}/questions/{question_id}", response_model=QuestionOut)
 def update_quiz_question(
     identifier: str,
