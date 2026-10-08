@@ -107,108 +107,96 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         pix_container["pix"] = None
                 return pix_container["pix"], pix_container["scale_x"], pix_container["scale_y"]
 
-            page_dict = page.get_text("dict")
-            blocks = [b for b in page_dict.get("blocks", []) if "lines" in b]
+            all_lines = []
+            for block in blocks:
+                for line in block.get("lines", []):
+                    all_lines.append(line)
 
-            # 4. Multi-column Layout Detection (e.g. 2-column slides / exam papers)
-            mid_x = page_w * 0.48
-            col1_blocks = [b for b in blocks if b["bbox"][0] < mid_x and b["bbox"][2] <= page_w * 0.65]
-            col2_blocks = [b for b in blocks if b["bbox"][0] >= mid_x * 0.75]
-            header_blocks = [b for b in blocks if b not in col1_blocks and b not in col2_blocks]
-
-            if len(col1_blocks) >= 2 and len(col2_blocks) >= 2:
-                # 2-column page: Header first, then Left column (top-to-bottom), then Right column (top-to-bottom)
-                sorted_blocks = (
-                    sorted(header_blocks, key=lambda b: b["bbox"][1]) +
-                    sorted(col1_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0])) +
-                    sorted(col2_blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
-                )
-            else:
-                sorted_blocks = sorted(blocks, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+            # Natural reading order: Top-to-bottom (Y coordinate band ~5pt tolerance), Left-to-right
+            sorted_lines = sorted(all_lines, key=lambda l: (round(l["bbox"][1] / 5.0), l["bbox"][0]))
 
             page_lines = []
-            for block in sorted_blocks:
-                for line in block["lines"]:
-                    line_parts = []
-                    for span in line.get("spans", []):
-                        text = span.get("text", "")
-                        if not text:
-                            continue
-                        text = sanitize_str(text)
-                        if not text:
-                            continue
+            for line in sorted_lines:
+                line_parts = []
+                for span in line.get("spans", []):
+                    text = span.get("text", "")
+                    if not text:
+                        continue
+                    text = sanitize_str(text)
+                    if not text:
+                        continue
 
-                        color = span.get("color", 0)
-                        r = (color >> 16) & 255
-                        g = (color >> 8) & 255
-                        b = color & 255
+                    color = span.get("color", 0)
+                    r = (color >> 16) & 255
+                    g = (color >> 8) & 255
+                    b = color & 255
 
-                        # Distinct Red, Green, Blue text
-                        is_red = (r > 130 and g < 110 and b < 110)
-                        is_green = (g > 130 and r < 110 and b < 120)
-                        is_blue = (b > 150 and r < 110 and g < 140)
-                        is_colored = is_red or is_green or is_blue or (max(r, g, b) - min(r, g, b) > 60 and max(r, g, b) > 90)
+                    # Distinct Red, Green, Blue text
+                    is_red = (r > 130 and g < 110 and b < 110)
+                    is_green = (g > 130 and r < 110 and b < 120)
+                    is_blue = (b > 150 and r < 110 and g < 140)
+                    is_colored = is_red or is_green or is_blue or (max(r, g, b) - min(r, g, b) > 60 and max(r, g, b) > 90)
 
-                        # Check if span is covered by any Vector/Annotation Highlight rectangle
-                        is_under_highlight = False
-                        span_rect = pymupdf.Rect(span.get("bbox", [0, 0, 0, 0]))
-                        if not span_rect.is_empty and highlight_rects:
-                            span_area = span_rect.get_area()
-                            for hr in highlight_rects:
-                                intersect = span_rect & hr
-                                if not intersect.is_empty and (span_area <= 0 or (intersect.get_area() / max(1.0, span_area) > 0.15)):
+                    # Check if span is covered by any Vector/Annotation Highlight rectangle
+                    is_under_highlight = False
+                    span_rect = pymupdf.Rect(span.get("bbox", [0, 0, 0, 0]))
+                    if not span_rect.is_empty and highlight_rects:
+                        span_area = span_rect.get_area()
+                        for hr in highlight_rects:
+                            intersect = span_rect & hr
+                            if not intersect.is_empty and (span_area <= 0 or (intersect.get_area() / max(1.0, span_area) > 0.15)):
+                                is_under_highlight = True
+                                break
+
+                    # Check pixel sampling ONLY if not already detected and span might be part of an option/question
+                    if not is_under_highlight and not is_colored and not span_rect.is_empty and (re.search(r'^[A-Da-d][\.\)\:\-]', text.strip()) or len(text.strip()) > 3):
+                        pix, scale_x, scale_y = get_page_pix()
+                        if pix:
+                            px0 = max(0, min(pix.width - 1, int(span_rect.x0 * scale_x)))
+                            py0 = max(0, min(pix.height - 1, int(span_rect.y0 * scale_y)))
+                            px1 = max(0, min(pix.width, int(span_rect.x1 * scale_x)))
+                            py1 = max(0, min(pix.height, int(span_rect.y1 * scale_y)))
+
+                            if px1 > px0 and py1 > py0:
+                                step_x = max(1, (px1 - px0) // 8)
+                                step_y = max(1, (py1 - py0) // 3)
+                                sample_total = 0
+                                sample_highlight = 0
+
+                                for sy in range(py0, py1, step_y):
+                                    for sx in range(px0, px1, step_x):
+                                        pixel = pix.pixel(sx, sy)
+                                        pr, pg, pb = pixel[0], pixel[1], pixel[2]
+                                        sample_total += 1
+
+                                        is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
+                                        is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
+                                        is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
+                                        is_px_orange = (pr > 190 and pg > 90 and pg < 185 and pb < 110)
+                                        is_px_pink = (pr > 190 and pb > 140 and pg < 170)
+
+                                        if is_px_yellow or is_px_green or is_px_cyan or is_px_orange or is_px_pink:
+                                            sample_highlight += 1
+
+                                if sample_total > 0 and (sample_highlight / sample_total) >= 0.15:
                                     is_under_highlight = True
-                                    break
 
-                        # Check pixel sampling ONLY if not already detected and span might be part of an option/question
-                        if not is_under_highlight and not is_colored and not span_rect.is_empty and (re.search(r'^[A-Da-d][\.\)\:\-]', text.strip()) or len(text.strip()) > 3):
-                            pix, scale_x, scale_y = get_page_pix()
-                            if pix:
-                                px0 = max(0, min(pix.width - 1, int(span_rect.x0 * scale_x)))
-                                py0 = max(0, min(pix.height - 1, int(span_rect.y0 * scale_y)))
-                                px1 = max(0, min(pix.width, int(span_rect.x1 * scale_x)))
-                                py1 = max(0, min(pix.height, int(span_rect.y1 * scale_y)))
+                    font_lower = span.get("font", "").lower()
+                    flags = span.get("flags", 0)
+                    is_bold = ("bold" in font_lower or "black" in font_lower or "heavy" in font_lower or (flags & 2 != 0) or (flags & 16 != 0))
+                    is_italic = ("italic" in font_lower or "oblique" in font_lower or (flags & 1 != 0))
 
-                                if px1 > px0 and py1 > py0:
-                                    step_x = max(1, (px1 - px0) // 8)
-                                    step_y = max(1, (py1 - py0) // 3)
-                                    sample_total = 0
-                                    sample_highlight = 0
+                    if is_under_highlight or is_colored:
+                        line_parts.append(f"{text} [COLOR_MARK]")
+                    elif is_bold:
+                        line_parts.append(f"{text} [BOLD_MARK]")
+                    elif is_italic:
+                        line_parts.append(f"{text} [ITALIC_MARK]")
+                    else:
+                        line_parts.append(text)
 
-                                    for sy in range(py0, py1, step_y):
-                                        for sx in range(px0, px1, step_x):
-                                            pixel = pix.pixel(sx, sy)
-                                            pr, pg, pb = pixel[0], pixel[1], pixel[2]
-                                            sample_total += 1
-
-                                            is_px_yellow = (pr > 165 and pg > 165 and pb < 145)
-                                            is_px_green = (pg > 165 and pr < 170 and pb < 170 and (pg - pr > 25))
-                                            is_px_cyan = (pb > 165 and pg > 165 and pr < 160)
-                                            is_px_orange = (pr > 190 and pg > 90 and pg < 185 and pb < 110)
-                                            is_px_pink = (pr > 190 and pb > 140 and pg < 170)
-
-                                            if is_px_yellow or is_px_green or is_px_cyan or is_px_orange or is_px_pink:
-                                                sample_highlight += 1
-
-                                    if sample_total > 0 and (sample_highlight / sample_total) >= 0.15:
-                                        is_under_highlight = True
-
-                        font_lower = span.get("font", "").lower()
-                        flags = span.get("flags", 0)
-                        is_bold = ("bold" in font_lower or "black" in font_lower or "heavy" in font_lower or (flags & 2 != 0) or (flags & 16 != 0))
-                        is_italic = ("italic" in font_lower or "oblique" in font_lower or (flags & 1 != 0))
-
-                        if is_under_highlight or is_colored:
-                            line_parts.append(f"{text} [COLOR_MARK]")
-                        elif is_bold:
-                            line_parts.append(f"{text} [BOLD_MARK]")
-                        elif is_italic:
-                            line_parts.append(f"{text} [ITALIC_MARK]")
-                        else:
-                            line_parts.append(text)
-
-                    if line_parts:
-                        page_lines.append(" ".join(line_parts))
+                if line_parts:
+                    page_lines.append(" ".join(line_parts))
 
             full_text.append("\n".join(page_lines))
 
@@ -239,8 +227,14 @@ def clean_text(s: str) -> str:
 
 
 def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
-    """Ultra-resilient Parser with color, bold, italic, and checkmark answer detection."""
-    text = extract_rich_text_from_pdf(pdf_bytes)
+    """Ultra-resilient Parser with natural reading order, color, bold, and explicit answer detection."""
+    try:
+        text = extract_rich_text_from_pdf(pdf_bytes)
+        if not text or not text.strip():
+            text = extract_text_from_pdf_pypdf(pdf_bytes)
+    except Exception:
+        text = extract_text_from_pdf_pypdf(pdf_bytes)
+
     if not text or not text.strip():
         return []
 
@@ -265,7 +259,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
             except:
                 pass
 
-    # Regex to match Chapter / Lesson headers (e.g. Bài 1, Bài 2, Chương I, Phần 1, Chủ đề 1, Tiết 1, Module 1...)
+    # Regex to match Chapter / Lesson headers
     chapter_header_rx = re.compile(
         r'(?:^|\n)\s*(BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*([0-9IVXLCDMivxlcdm]+)(?:[\s\:\.\-\–\—]*([^\n]*))',
         re.IGNORECASE
@@ -278,6 +272,11 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
     current_chapter = "Bài 1"
     questions = []
     q_counter = 0
+
+    ignore_meta_rx = re.compile(
+        r'(?:Giáo trình|Giáo án|Khoa|Bộ môn|Trường|Học viện|Đại học|ĐỀ THI|ĐÁP ÁN|Trang\s*\d+|Page\s*\d+|Nhập môn|đã được đối chiếu|LIỆU ĐƠN GIẢN|TÀI LIỆU|HỌC PHẦN)\b',
+        re.IGNORECASE
+    )
 
     for raw_block in blocks:
         block = raw_block.strip()
@@ -330,6 +329,7 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         content_lines = [
             l for l in content_raw.split('\n')
             if not re.match(r'^\s*(?:TRẮC\s*NGHIỆM|BÀI|Bài|CHƯƠNG|Chương|PHẦN|Phần|CHỦ ĐỀ|Chủ đề|TIẾT|Tiết|HỌC PHẦN|Học phần|MODULE|Module)\s*[0-9IVXLCDMivxlcdm]*', l.strip(), re.IGNORECASE)
+            and not ignore_meta_rx.search(l.strip())
         ]
         content = '\n'.join(content_lines).strip()
         content = re.sub(r'^(?:(?:Câu|CÂU|Question|Bài)\s*)?\d{1,4}[\s\:\.\-\)]*', '', content, flags=re.IGNORECASE).strip()
@@ -338,12 +338,13 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
             content = clean_text(content_raw)
 
         # Detect explicit answers and explanation labels
-        ans_match = re.search(r'(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA)[:\s]+(?:[✓✔\s]*)([A-D])\b', block, flags=re.IGNORECASE)
+        ans_match = re.search(r'(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA)[:\s]+(?:[✓✔☑\s]*)([A-D])\b', block, flags=re.IGNORECASE)
+        ans_search_start = re.search(r'(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA)[:\s]+(?:[✓✔☑\s]*)[A-D]\b', block, flags=re.IGNORECASE)
         exp_match = re.search(r'(?:\[\]\s*)?(?:Giải thích|GIẢI THÍCH|Lý do|Explanation|HDG)[:\s]+(.*)', block, flags=re.IGNORECASE | re.DOTALL)
         general_exp = clean_text(exp_match.group(1)) if exp_match else ""
 
-        # Option boundaries
-        end_boundary = ans_match.start() if ans_match else (exp_match.start() if exp_match else len(block))
+        # Option boundaries: options end before the Answer / Explanation section
+        end_boundary = ans_search_start.start() if ans_search_start else (exp_match.start() if exp_match else len(block))
 
         if has_a and has_b and has_c and has_d:
             opt_a_raw = block[has_a.end():has_b.start()]
@@ -396,21 +397,19 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
                 exp_target_match = exp_ans_search.group(1).upper()
 
         # Resolve correct answer priority:
-        # 1. Option highlighted in YELLOW / RED / DISTINCT COLOR
+        # 1. Explicit printed "✓ Đáp án đúng: D" (Absolute 100% highest priority!)
         # 2. Option with Checkmark ✓ / ✔ / [x]
-        # 3. Explicit "Đáp án: A"
+        # 3. Option highlighted in DISTINCT COLOR / YELLOW
         # 4. Single Bolded Option
         # 5. Single Italicized Option
-        # 6. Explanation text mentions target answer
+        # 6. Target answer from Explanation text
         # 7. Global Answer table
-        if len(colored_opts) == 1:
-            correct_answer = colored_opts[0]
-        elif len(colored_opts) > 1:
-            correct_answer = colored_opts[0]
+        if ans_match:
+            correct_answer = ans_match.group(1).upper()
         elif len(checkmark_opts) == 1:
             correct_answer = checkmark_opts[0]
-        elif ans_match:
-            correct_answer = ans_match.group(1).upper()
+        elif len(colored_opts) == 1:
+            correct_answer = colored_opts[0]
         elif len(bold_opts) == 1:
             correct_answer = bold_opts[0]
         elif len(italic_opts) == 1:
