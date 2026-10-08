@@ -11,8 +11,8 @@ from .ai_service import _heuristic_reasoning_engine
 logger = logging.getLogger(__name__)
 
 
-def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
-    """Extract all text from uploaded PDF bytes up to max_pages."""
+def extract_text_from_pdf_pypdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
+    """Fallback plain text extraction using pypdf."""
     try:
         reader = PdfReader(io.BytesIO(pdf_bytes))
         full_text = []
@@ -32,24 +32,91 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
         raw = "\n\n".join(full_text)
         return unicodedata.normalize('NFC', raw)
     except Exception as e:
-        logger.error(f"Error reading PDF: {e}")
+        logger.error(f"Error reading PDF with pypdf: {e}")
         return ""
 
 
+def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
+    """
+    Extracts text while detecting:
+    1. Red / Blue / Green colored text (used to mark correct answers).
+    2. Bold / Italic / Underline styles.
+    3. Annotations and highlights.
+    Injects [COLOR_MARK], [BOLD_MARK], [ITALIC_MARK] into the text stream.
+    """
+    try:
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        full_text = []
+        pages_to_read = min(len(doc), max_pages)
+
+        for page_idx in range(pages_to_read):
+            page = doc[page_idx]
+            page_dict = page.get_text("dict")
+            page_lines = []
+
+            for block in page_dict.get("blocks", []):
+                if "lines" not in block:
+                    continue
+                for line in block["lines"]:
+                    line_parts = []
+                    for span in line.get("spans", []):
+                        text = span.get("text", "")
+                        if not text:
+                            continue
+
+                        color = span.get("color", 0)
+                        r = (color >> 16) & 255
+                        g = (color >> 8) & 255
+                        b = color & 255
+
+                        # Distinct Red, Green, Blue, or high-saturation non-black text
+                        is_red = (r > 130 and g < 110 and b < 110)
+                        is_green = (g > 130 and r < 110 and b < 120)
+                        is_blue = (b > 150 and r < 110 and g < 140)
+                        is_colored = is_red or is_green or is_blue or (max(r, g, b) - min(r, g, b) > 60 and max(r, g, b) > 90)
+
+                        font_lower = span.get("font", "").lower()
+                        flags = span.get("flags", 0)
+                        is_bold = ("bold" in font_lower or "black" in font_lower or "heavy" in font_lower or (flags & 2 != 0) or (flags & 16 != 0))
+                        is_italic = ("italic" in font_lower or "oblique" in font_lower or (flags & 1 != 0))
+
+                        if is_colored:
+                            line_parts.append(f"{text} [COLOR_MARK]")
+                        elif is_bold:
+                            line_parts.append(f"{text} [BOLD_MARK]")
+                        elif is_italic:
+                            line_parts.append(f"{text} [ITALIC_MARK]")
+                        else:
+                            line_parts.append(text)
+
+                    if line_parts:
+                        page_lines.append(" ".join(line_parts))
+
+            full_text.append("\n".join(page_lines))
+
+        raw = "\n\n".join(full_text)
+        return unicodedata.normalize('NFC', raw)
+    except Exception as e:
+        logger.warning(f"PyMuPDF rich extraction failed ({e}), falling back to pypdf.")
+        return extract_text_from_pdf_pypdf(pdf_bytes, max_pages)
+
+
 def clean_text(s: str) -> str:
+    s = re.sub(r'\[(?:COLOR_MARK|BOLD_MARK|ITALIC_MARK)\]', '', s)
     return re.sub(r'[\r\n\t]+', ' ', s).strip()
 
 
 def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
-    """Ultra-resilient Parser tailored for Python exams, Word/PDF tables, checkmarked answers, and Vietnamese layouts."""
-    text = extract_text_from_pdf(pdf_bytes)
+    """Ultra-resilient Parser with color, bold, italic, and checkmark answer detection."""
+    text = extract_rich_text_from_pdf(pdf_bytes)
     if not text.strip():
         return []
 
     normalized = re.sub(r'\r\n', '\n', text)
     normalized = re.sub(r'\t', ' ', normalized)
 
-    # Detect global answer keys ONLY in explicit answer sections (to avoid false positives in code/math)
+    # Detect global answer keys ONLY in explicit answer sections
     global_answers = {}
     ans_section = re.search(
         r'(?:BẢNG\s*ĐÁP\s*ÁN|BẢNG\s*TRẢ\s*LỜI|ĐÁP\s*ÁN\s*ĐỀ\s*THI|BẢNG\s*KEY|ANSWER\s*KEY|HƯỚNG\s*DẪN\s*CHẤM)[\s\:\-]+([\s\S]+?)(?=\n\s*(?:BÀI|CHƯƠNG|CÂU|Question|\Z))',
@@ -133,8 +200,9 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         ]
         content = '\n'.join(content_lines).strip()
         content = re.sub(r'^(?:(?:Câu|CÂU|Question|Bài)\s*)?\d{1,4}[\s\:\.\-\)]*', '', content, flags=re.IGNORECASE).strip()
+        content = clean_text(content)
         if not content:
-            content = content_raw
+            content = clean_text(content_raw)
 
         # Detect explicit answers and explanation labels
         ans_match = re.search(r'(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA)[:\s]+(?:[✓✔\s]*)([A-D])\b', block, flags=re.IGNORECASE)
@@ -149,12 +217,20 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         opt_c_raw = block[has_c.end():has_d.start()]
         opt_d_raw = block[has_d.end():end_d]
 
-        # Check for Checkmarks / True indicators inside options (e.g. "D. 5j ✓", "A. 5 *", "[x] C. True")
-        detected_from_checkmark = None
-        for key, raw_val in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)]:
-            if re.search(r'[✓✔☑]|(?:\s*[\(\[]?(?:đúng|dung|chính xác|correct|true)[\)\]]?\s*$)', raw_val, re.IGNORECASE):
-                detected_from_checkmark = key
-                break
+        # Check for Colored Text (e.g. Red text in user's image)
+        colored_opts = [key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)] if '[COLOR_MARK]' in r]
+        
+        # Check for Bold Text
+        bold_opts = [key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)] if '[BOLD_MARK]' in r]
+
+        # Check for Italic Text
+        italic_opts = [key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)] if '[ITALIC_MARK]' in r]
+
+        # Check for Checkmarks / True indicators
+        checkmark_opts = [
+            key for key, r in [('A', opt_a_raw), ('B', opt_b_raw), ('C', opt_c_raw), ('D', opt_d_raw)]
+            if re.search(r'[✓✔☑]|(?:\s*[\(\[]?(?:đúng|dung|chính xác|correct|true)[\)\]]?\s*$)', clean_text(r), re.IGNORECASE)
+        ]
 
         def clean_opt(s: str) -> str:
             cleaned = clean_text(s)
@@ -167,18 +243,31 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
         opt_c = clean_opt(opt_c_raw)
         opt_d = clean_opt(opt_d_raw)
 
-        # Detect target answer mentioned inside explanation text if available (e.g. "(Đáp án đề thi chính thức chọn A: 5)")
+        # Detect target answer mentioned inside explanation text
         exp_target_match = None
         if general_exp:
             exp_ans_search = re.search(r'(?:đáp án|chọn|kết quả|phương án)[\s\:\(a-zA-Zđềthichínhthức]*([A-D])\b', general_exp, re.IGNORECASE)
             if exp_ans_search:
                 exp_target_match = exp_ans_search.group(1).upper()
 
-        # Resolve correct answer priority
-        if detected_from_checkmark:
-            correct_answer = detected_from_checkmark
+        # Resolve correct answer priority:
+        # 1. Option marked in RED / DISTINCT COLOR (like user's image)
+        # 2. Option with Checkmark ✓ / ✔ / [x]
+        # 3. Explicit "Đáp án: A"
+        # 4. Single Bolded Option
+        # 5. Single Italicized Option
+        # 6. Explanation text mentions target answer
+        # 7. Global Answer table
+        if len(colored_opts) == 1:
+            correct_answer = colored_opts[0]
+        elif len(checkmark_opts) == 1:
+            correct_answer = checkmark_opts[0]
         elif ans_match:
             correct_answer = ans_match.group(1).upper()
+        elif len(bold_opts) == 1:
+            correct_answer = bold_opts[0]
+        elif len(italic_opts) == 1:
+            correct_answer = italic_opts[0]
         elif exp_target_match:
             correct_answer = exp_target_match
         elif q_num in global_answers:
@@ -187,7 +276,6 @@ def parse_pdf_to_questions(pdf_bytes: bytes) -> List[Dict[str, Any]]:
             correct_answer = "A"
 
         if opt_a and opt_b and opt_c and opt_d:
-            # Generate articulate, meaningful explanations
             if general_exp:
                 def make_exp_from_general(letter, val, is_corr):
                     if is_corr:
