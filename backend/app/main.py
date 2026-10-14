@@ -1,14 +1,23 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 import logging
 from sqlalchemy import text
 from .database import engine, Base, SessionLocal
-from .models import User, Subject, Quiz, Question, QuizAttempt
-from .routes import subjects, quizzes, pdf, auth, users
+from .models import User, Subject, Quiz, Question, QuizAttempt, UserCardReview
+from .routes import subjects, quizzes, pdf, auth, users, live_quiz, spaced_repetition
 from .auth import hash_password
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Ensure uploads directory exists
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+QUESTIONS_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "questions")
+TEMP_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "temp")
+os.makedirs(QUESTIONS_UPLOAD_DIR, exist_ok=True)
+os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -26,12 +35,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount Static Files for Uploads (Question illustrations, diagrams, etc.)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 # Mount Routes
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(subjects.router)
 app.include_router(quizzes.router)
 app.include_router(pdf.router)
+app.include_router(live_quiz.router)
+app.include_router(spaced_repetition.router)
 
 
 def run_database_migrations_and_seed():
@@ -65,6 +79,13 @@ def run_database_migrations_and_seed():
                         WHERE table_name='quiz_attempts' AND column_name='user_id'
                     ) THEN
                         ALTER TABLE quiz_attempts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='questions' AND column_name='image_url'
+                    ) THEN
+                        ALTER TABLE questions ADD COLUMN image_url VARCHAR(500);
                     END IF;
                 END $$;
             """))

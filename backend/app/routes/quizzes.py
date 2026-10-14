@@ -7,7 +7,7 @@ import re
 import unicodedata
 from ..database import get_db
 from ..models import Quiz, Question, Subject, QuizAttempt, User
-from ..services.pdf_parser import parse_pdf_to_questions
+from ..services.pdf_parser import parse_pdf_to_questions, parse_document_to_questions
 from ..services.pdf_generator import build_quiz_pdf
 from ..schemas import (
     QuizSummaryOut,
@@ -21,9 +21,11 @@ from ..schemas import (
     AttemptSubmitResponse,
     QuizAttemptOut,
     ChapterSummaryOut,
-    AiSolveRequest
+    AiSolveRequest,
+    AITutorRequest,
+    AITutorResponse
 )
-from ..services.ai_service import solve_and_explain_question
+from ..services.ai_service import solve_and_explain_question, ask_ai_tutor
 from ..auth import get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api/quizzes", tags=["Quizzes"])
@@ -291,7 +293,8 @@ def create_quiz(
             explanation_a=q_data.explanation_a,
             explanation_b=q_data.explanation_b,
             explanation_c=q_data.explanation_c,
-            explanation_d=q_data.explanation_d
+            explanation_d=q_data.explanation_d,
+            image_url=q_data.image_url.strip() if q_data.image_url else None
         )
         db.add(q)
 
@@ -410,8 +413,36 @@ def submit_quiz_attempt(
         total_questions=total_q,
         correct_count=correct_count,
         details=details,
-        submitted_at=attempt.submitted_at
+        submitted_at=attempt.submitted_at,
+        violation_count=submission.violation_count or 0,
+        violation_logs=submission.violation_logs or []
     )
+
+
+@router.post("/{quiz_id}/questions/{question_id}/ai-tutor", response_model=AITutorResponse)
+def get_ai_tutor_guidance(
+    quiz_id: int,
+    question_id: int,
+    req: AITutorRequest,
+    db: Session = Depends(get_db)
+):
+    question = db.query(Question).filter(Question.id == question_id, Question.quiz_id == quiz_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Không tìm thấy câu hỏi.")
+
+    result = ask_ai_tutor(
+        content=question.content,
+        option_a=question.option_a or "",
+        option_b=question.option_b or "",
+        option_c=question.option_c or "",
+        option_d=question.option_d or "",
+        correct_answer=question.correct_answer or "A",
+        user_choice=req.user_choice,
+        student_prompt=req.student_prompt,
+        mode=req.mode
+    )
+
+    return result
 
 
 def filename_to_chapter(fname: str) -> str:
@@ -439,6 +470,7 @@ async def append_pdf_to_quiz(
     share_code: str,
     files: List[UploadFile] = File(...),
     chapter_name: Optional[str] = Form(None),
+    ai_deep_scan: bool = Form(False),
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
@@ -465,8 +497,12 @@ async def append_pdf_to_quiz(
     fallback_chapter = chapter_name.strip() if (chapter_name and chapter_name.strip()) else None
 
     new_questions = []
+    allowed_exts = ('.pdf', '.docx', '.txt', '.md')
     for f in files:
-        if not f.filename or not f.filename.lower().endswith(".pdf"):
+        if not f.filename:
+            continue
+        low_name = f.filename.lower()
+        if not any(low_name.endswith(ext) for ext in allowed_exts):
             continue
 
         try:
@@ -474,11 +510,15 @@ async def append_pdf_to_quiz(
             if len(content) == 0:
                 continue
 
-            parsed_questions = parse_pdf_to_questions(content)
+            file_default_chapter = fallback_chapter or filename_to_chapter(f.filename)
+            parsed_questions = parse_document_to_questions(
+                content,
+                filename=f.filename,
+                default_chapter=file_default_chapter,
+                ai_deep_scan=ai_deep_scan
+            )
             if not parsed_questions:
                 continue
-
-            file_default_chapter = fallback_chapter or filename_to_chapter(f.filename)
 
             for q in parsed_questions:
                 detected_ch = q.get("chapter")
@@ -502,7 +542,8 @@ async def append_pdf_to_quiz(
                         explanation_a=q.get("explanation_a", ""),
                         explanation_b=q.get("explanation_b", ""),
                         explanation_c=q.get("explanation_c", ""),
-                        explanation_d=q.get("explanation_d", "")
+                        explanation_d=q.get("explanation_d", ""),
+                        image_url=q.get("image_url")
                     )
                 )
         except Exception:
@@ -802,6 +843,8 @@ def update_quiz_question(
         question.explanation_c = data.explanation_c.strip()
     if data.explanation_d is not None:
         question.explanation_d = data.explanation_d.strip()
+    if data.image_url is not None:
+        question.image_url = data.image_url.strip() if data.image_url.strip() else None
 
     db.commit()
     db.refresh(question)

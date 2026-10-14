@@ -5,14 +5,16 @@ import logging
 import re
 from ..database import get_db
 from ..models import Quiz, Question, Subject, User
-from ..services.pdf_parser import parse_pdf_to_questions
+from ..services.pdf_parser import parse_document_to_questions, parse_pdf_to_questions
 from ..routes.quizzes import generate_share_code, filename_to_chapter
 from ..auth import get_current_user_optional
 from ..schemas import QuizDetailOut
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/pdf", tags=["PDF Processing"])
+router = APIRouter(prefix="/api/pdf", tags=["PDF & Document Processing"])
+
+ALLOWED_EXTENSIONS = ('.pdf', '.docx', '.txt', '.md')
 
 def sanitize_sql_str(val: Optional[str], default: str = "") -> str:
     """Removes null bytes (0x00) and problematic control characters from strings prior to SQL insertion."""
@@ -32,21 +34,32 @@ async def parse_pdf_quiz(
     subject_id: Optional[str] = Form(None),
     auto_save: Optional[Any] = Form(True),
     is_public: Optional[Any] = Form(True),
+    ai_deep_scan: Optional[Any] = Form(False),
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    Parse uploaded PDF file(s), extract questions with 4 options and per-option explanations.
+    Parse uploaded exam file(s) (PDF, DOCX, TXT, MD) with rule-based engine and AI Deep Scan.
     If auto_save is True, automatically creates the quiz in Neon DB and returns share_code.
     """
     if not files or len(files) == 0:
-        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 file PDF.")
+        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 file đề thi (PDF, Word DOCX, TXT).")
+
+    ai_scan_bool = False
+    if ai_deep_scan is not None:
+        if isinstance(ai_deep_scan, bool):
+            ai_scan_bool = ai_deep_scan
+        elif str(ai_deep_scan).strip().lower() in ["true", "1", "yes"]:
+            ai_scan_bool = True
 
     all_parsed_questions = []
     file_names = []
 
     for file in files:
-        if not file.filename or not file.filename.lower().endswith(".pdf"):
+        if not file.filename:
+            continue
+        low_filename = file.filename.lower()
+        if not any(low_filename.endswith(ext) for ext in ALLOWED_EXTENSIONS):
             continue
 
         try:
@@ -54,11 +67,16 @@ async def parse_pdf_quiz(
             if len(content) == 0:
                 continue
 
-            parsed = parse_pdf_to_questions(content)
+            file_default_chapter = filename_to_chapter(file.filename)
+            parsed = parse_document_to_questions(
+                content,
+                filename=file.filename,
+                ai_deep_scan=ai_scan_bool,
+                default_chapter=file_default_chapter
+            )
             if not parsed:
                 continue
 
-            file_default_chapter = filename_to_chapter(file.filename)
             for q in parsed:
                 detected_ch = q.get("chapter")
                 if not detected_ch or detected_ch == "Bài 1":
@@ -67,13 +85,13 @@ async def parse_pdf_quiz(
 
             file_names.append(file.filename)
         except Exception as e:
-            logger.error(f"Error parsing PDF file {file.filename}: {e}", exc_info=True)
+            logger.error(f"Error parsing document file {file.filename}: {e}", exc_info=True)
             continue
 
     if not all_parsed_questions or len(all_parsed_questions) == 0:
         raise HTTPException(
             status_code=422,
-            detail="Không tìm thấy câu hỏi trắc nghiệm hợp lệ trong các file PDF đã chọn. Hãy đảm bảo đề thi có câu hỏi và các phương án A, B, C, D."
+            detail="Không tìm thấy câu hỏi trắc nghiệm hợp lệ trong các file đã chọn. Hãy đảm bảo đề thi có câu hỏi và các phương án A, B, C, D (Hỗ trợ PDF, Word .DOCX, TXT, MD)."
         )
 
     # Determine quiz title from parameter or filename
@@ -141,7 +159,8 @@ async def parse_pdf_quiz(
                         explanation_a=sanitize_sql_str(q.get("explanation_a")),
                         explanation_b=sanitize_sql_str(q.get("explanation_b")),
                         explanation_c=sanitize_sql_str(q.get("explanation_c")),
-                        explanation_d=sanitize_sql_str(q.get("explanation_d"))
+                        explanation_d=sanitize_sql_str(q.get("explanation_d")),
+                        image_url=sanitize_sql_str(q.get("image_url")) or None
                     )
                 )
 

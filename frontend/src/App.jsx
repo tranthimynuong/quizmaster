@@ -14,6 +14,10 @@ import RegisterPage from './pages/RegisterPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import MyHistoryPage from './pages/MyHistoryPage';
 import MyQuizzesPage from './pages/MyQuizzesPage';
+import LiveJoinPage from './pages/LiveJoinPage';
+import LivePlayerPage from './pages/LivePlayerPage';
+import LiveHostPage from './pages/LiveHostPage';
+import FlashcardStudyPage from './pages/FlashcardStudyPage';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -46,6 +50,12 @@ export default function App() {
             <Route path="/quiz/:shareCode" element={<QuizDetailPage />} />
             <Route path="/quiz/:shareCode/practice" element={<PracticeModePage />} />
             <Route path="/quiz/:shareCode/exam" element={<ExamModePage />} />
+            <Route path="/quiz/:shareCode/flashcards" element={<FlashcardStudyPage />} />
+
+            {/* Live Multiplayer Battle Routes */}
+            <Route path="/live/join" element={<LiveJoinPage />} />
+            <Route path="/live/play/:pin" element={<LivePlayerPage />} />
+            <Route path="/live/host/:shareCode" element={<LiveHostPage />} />
 
             {/* Authenticated User Routes */}
             <Route

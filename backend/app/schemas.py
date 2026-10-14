@@ -85,6 +85,7 @@ class QuestionBase(BaseModel):
     explanation_b: Optional[str] = None
     explanation_c: Optional[str] = None
     explanation_d: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class QuestionCreate(QuestionBase):
@@ -103,6 +104,7 @@ class QuestionUpdate(BaseModel):
     explanation_b: Optional[str] = None
     explanation_c: Optional[str] = None
     explanation_d: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class QuestionOut(QuestionBase):
@@ -226,6 +228,8 @@ class QuizDetailOut(BaseModel):
 class AttemptSubmitRequest(BaseModel):
     taker_name: Optional[str] = "Học viên"
     user_answers: dict = {}
+    violation_count: Optional[int] = 0
+    violation_logs: Optional[List[dict]] = []
 
 
 class AttemptSubmitResponse(BaseModel):
@@ -237,3 +241,30 @@ class AttemptSubmitResponse(BaseModel):
     correct_count: int
     details: List[dict]
     submitted_at: datetime
+    violation_count: int = 0
+    violation_logs: List[dict] = []
+
+
+# ================= AI TUTOR SCHEMAS =================
+class AITutorRequest(BaseModel):
+    user_choice: Optional[str] = None
+    student_prompt: Optional[str] = None
+    mode: str = "explain_wrong"  # explain_wrong | mnemonic_tip | generate_similar | chat
+
+
+class SimilarQuestionData(BaseModel):
+    content: str
+    option_a: str
+    option_b: str
+    option_c: str
+    option_d: str
+    correct_answer: str
+    explanation: Optional[str] = None
+
+
+class AITutorResponse(BaseModel):
+    mode: str
+    answer: str
+    key_takeaway: Optional[str] = None
+    similar_question: Optional[SimilarQuestionData] = None
+

@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "npm --prefix frontend run dev",
+    "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"cyan,magenta\" \"npm run backend\" \"npm run frontend\"",
+    "frontend": "npm --prefix frontend run dev",
+    "backend": "cd backend && .\\venv\\Scripts\\python.exe run.py",
     "build": "npm --prefix frontend run build",
-    "preview": "npm --prefix frontend run preview",
-    "backend": "cd backend && .\\venv\\Scripts\\python run.py"
+    "preview": "npm --prefix frontend run preview"
   }
 }

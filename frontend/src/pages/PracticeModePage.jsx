@@ -16,11 +16,13 @@ import {
   Sparkles,
   CheckSquare,
   Square,
-  Play
+  Play,
+  Bot
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { fetchQuizDetail } from '../services/api';
 import FormattedContent from '../components/FormattedContent';
+import AITutorModal from '../components/AITutorModal';
 
 export default function PracticeModePage() {
   const { shareCode } = useParams();
@@ -48,6 +50,7 @@ export default function PracticeModePage() {
   const [orderMode, setOrderMode] = useState('shuffle');
   const [showExplanationToggle, setShowExplanationToggle] = useState(true);
   const [isQuestionPickerOpen, setIsQuestionPickerOpen] = useState(false);
+  const [isAITutorOpen, setIsAITutorOpen] = useState(false);
 
   // Storage key helper
   const storageKey = `quiz_practice_progress_${shareCode}`;
@@ -608,7 +611,7 @@ export default function PracticeModePage() {
         {/* Question Content Box */}
         <div className="mb-5 sm:mb-6">
           <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 leading-relaxed">
-            <FormattedContent text={currentQ.content} />
+            <FormattedContent text={currentQ.content} imageUrl={currentQ.image_url} />
           </h1>
         </div>
 
@@ -672,7 +675,7 @@ export default function PracticeModePage() {
                   <div className="flex-1 min-w-0 pt-0.5">
                     <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
                       <strong className={`mr-1.5 ${letterStyle}`}>{optKey}.</strong>
-                      <FormattedContent text={opt.text} />
+                      <FormattedContent text={opt.text} compact />
                     </span>
                   </div>
                 </div>
@@ -714,18 +717,32 @@ export default function PracticeModePage() {
       </div>
 
       {/* Bottom Bar: Action buttons */}
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <button
-          onClick={() => setShowExplanationToggle(!showExplanationToggle)}
-          className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-semibold border transition-all shadow-xs ${
-            showExplanationToggle
-              ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
-          }`}
-        >
-          <FileText className="w-4 h-4 text-indigo-500" />
-          <span>Giải thích {showExplanationToggle ? '(Bật)' : '(Tắt)'}</span>
-        </button>
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-1 flex-wrap">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowExplanationToggle(!showExplanationToggle)}
+            className={`flex items-center gap-1.5 px-3 sm:px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-semibold border transition-all shadow-xs ${
+              showExplanationToggle
+                ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-indigo-500" />
+            <span>Giải thích {showExplanationToggle ? '(Bật)' : '(Tắt)'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAITutorOpen(true)}
+            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:opacity-95 text-white shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+            title="Mở Gia Sư AI hỗ trợ giải thích sâu câu hỏi này"
+          >
+            <Bot className="w-4 h-4" />
+            <span className="hidden sm:inline">Hỏi Gia Sư AI</span>
+            <span className="sm:hidden">Gia Sư AI</span>
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+          </button>
+        </div>
 
         <div className="flex items-center gap-2">
           <button
@@ -822,6 +839,17 @@ export default function PracticeModePage() {
 
           </div>
         </div>
+      )}
+
+      {/* Floating AI Tutor Modal */}
+      {currentQ && (
+        <AITutorModal
+          isOpen={isAITutorOpen}
+          onClose={() => setIsAITutorOpen(false)}
+          quizId={quiz?.id}
+          question={currentQ}
+          userChoice={userAnswers[currentQ.id]}
+        />
       )}
 
     </div>

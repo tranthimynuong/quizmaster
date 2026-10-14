@@ -21,13 +21,19 @@ import {
   Sparkles,
   Play,
   LogOut,
-  X
+  X,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Maximize2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { fetchQuizDetail, submitQuizAttempt } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import OptionExplanationCard from '../components/OptionExplanationCard';
 import FormattedContent from '../components/FormattedContent';
+import useExamProctoring from '../hooks/useExamProctoring';
+import { ProctoringWarningModal, ProctoringBadge, ProctoringReportCard } from '../components/ProctoringModal';
 
 const ANIMAL_NAMES = [
   { name: 'Gấu Mèo', icon: '🦝' },
@@ -88,6 +94,22 @@ export default function ExamModePage() {
   const [error, setError] = useState(null);
   const [savedExamSession, setSavedExamSession] = useState(null);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
+  // Proctoring Settings (Azota-style Anti-cheating)
+  const [isProctoringEnabled, setIsProctoringEnabled] = useState(true);
+  const [maxAllowedViolations, setMaxAllowedViolations] = useState(3);
+
+  const proctoring = useExamProctoring({
+    isActive: isExamStarted && !isSubmitted,
+    enabled: isProctoringEnabled,
+    maxViolations: maxAllowedViolations,
+    onViolationLimitReached: () => {
+      // Auto-submit exam when violation limit exceeded
+      setTimeout(() => {
+        handleSubmitExam(true, null, null, 'violation_limit_exceeded');
+      }, 2200);
+    }
+  });
 
   const examStorageKey = `quiz_exam_session_${shareCode}`;
 
@@ -282,7 +304,12 @@ export default function ExamModePage() {
     setCurrentIndex(0);
     setUserAnswers({});
     setFlaggedQuestions({});
+    proctoring.resetProctoring();
     setIsExamStarted(true);
+
+    if (isProctoringEnabled) {
+      proctoring.requestFullscreen();
+    }
 
     // Write initial session
     try {
@@ -296,6 +323,8 @@ export default function ExamModePage() {
         userAnswers: {},
         flaggedQuestions: {},
         currentIndex: 0,
+        isProctoringEnabled,
+        maxAllowedViolations,
         updatedAt: new Date().toISOString()
       }));
     } catch (e) {}
@@ -367,7 +396,7 @@ export default function ExamModePage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isExamStarted, isSubmitted, currentIndex, questions, userAnswers]);
 
-  const handleSubmitExam = async (forced = false, customAnswers = null, customQuestions = null) => {
+  const handleSubmitExam = async (forced = false, customAnswers = null, customQuestions = null, submitReason = '') => {
     if (submitting || isSubmitted) return;
 
     const activeAnswers = customAnswers || userAnswers;
@@ -383,16 +412,23 @@ export default function ExamModePage() {
 
     setSubmitting(true);
     try {
+      if (proctoring.isFullscreen) {
+        proctoring.exitFullscreen();
+      }
+
       const res = await submitQuizAttempt(quiz.id, {
         taker_name: takerName.trim() || 'Học viên',
-        user_answers: activeAnswers
+        user_answers: activeAnswers,
+        violation_count: proctoring.violationCount,
+        violation_logs: proctoring.violations,
+        submit_reason: submitReason || (forced ? 'time_up' : 'manual')
       });
       setSubmitResult(res);
       setIsSubmitted(true);
       setIsExitModalOpen(false);
       handleClearExamSession();
 
-      if (res.score >= 7.0) {
+      if (res.score >= 7.0 && proctoring.violationCount < maxAllowedViolations) {
         confetti({
           particleCount: 80,
           spread: 80,
@@ -669,6 +705,62 @@ export default function ExamModePage() {
               </div>
             </div>
 
+            {/* Proctoring Anti-Cheating Settings (Azota Style) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/50 dark:from-slate-800/60 dark:to-indigo-950/30 border border-slate-200 dark:border-slate-700/80 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>Giám sát phòng thi chống gian lận</span>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                        Azota Style
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Toàn màn hình bắt buộc, giám sát chuyển tab, khóa copy chuột phải, tự nộp khi vi phạm
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isProctoringEnabled}
+                    onChange={(e) => setIsProctoringEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                </label>
+              </div>
+
+              {isProctoringEnabled && (
+                <div className="pt-2.5 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">
+                    Giới hạn số lần rời màn hình thi tối đa:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {[3, 5].map((cnt) => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setMaxAllowedViolations(cnt)}
+                        className={`px-3 py-1 rounded-lg font-bold border transition-colors ${
+                          maxAllowedViolations === cnt
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {cnt} lần {cnt === 3 ? '(Khuyên dùng)' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Summary info */}
             <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">
               <p>• Hệ thống sẽ <strong>xáo trộn lộn xộn {Math.min(selectedQuestionCount, totalEligible)} câu</strong> từ các Bài đã chọn.</p>
@@ -773,7 +865,16 @@ export default function ExamModePage() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        {/* Proctoring Audit Report Card */}
+        {isProctoringEnabled && (
+          <ProctoringReportCard
+            violations={submitResult.violation_logs || proctoring.violations}
+            violationCount={submitResult.violation_count ?? proctoring.violationCount}
+            maxViolations={maxAllowedViolations}
+          />
+        )}
+
+        <div className="space-y-6 mt-8">
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-indigo-500" />
             <span>Xem lại chi tiết từng câu hỏi & lời giải</span>
@@ -799,7 +900,7 @@ export default function ExamModePage() {
                       </span>
                     )}
                     <h3 className="text-base font-bold text-slate-900 dark:text-white pt-0.5">
-                      <FormattedContent text={item.content} />
+                      <FormattedContent text={item.content} imageUrl={rawQ?.image_url} />
                     </h3>
                   </div>
                 </div>
@@ -808,6 +909,7 @@ export default function ExamModePage() {
                   question={rawQ}
                   selectedOption={item.user_choice}
                   showAll={true}
+                  quizId={quiz.id}
                 />
               </div>
             );
@@ -844,6 +946,15 @@ export default function ExamModePage() {
           </div>
         </div>
 
+        {/* Proctoring Status Badge in Header */}
+        <ProctoringBadge
+          isEnabled={isProctoringEnabled}
+          violationCount={proctoring.violationCount}
+          maxViolations={maxAllowedViolations}
+          onReenterFullscreen={proctoring.requestFullscreen}
+          isFullscreen={proctoring.isFullscreen}
+        />
+
         <div className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-mono text-sm sm:text-lg font-extrabold border ${
           timeLeft <= 120
             ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-300 animate-pulse'
@@ -866,7 +977,7 @@ export default function ExamModePage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
         
         {/* Left 3 cols: Question Area */}
-        <div className="lg:col-span-3 space-y-4 sm:space-y-6">
+        <div className={`lg:col-span-3 space-y-4 sm:space-y-6 ${isProctoringEnabled ? 'select-none' : ''}`}>
           <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-slate-200/90 dark:border-slate-800 p-4 sm:p-7 shadow-sm">
             
             <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100 dark:border-slate-800/80 gap-2 flex-wrap">
@@ -895,7 +1006,7 @@ export default function ExamModePage() {
             </div>
 
             <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed mb-5 sm:mb-6">
-              <FormattedContent text={currentQ.content} />
+              <FormattedContent text={currentQ.content} imageUrl={currentQ.image_url} />
             </h3>
 
             <div className="space-y-3">
@@ -925,7 +1036,7 @@ export default function ExamModePage() {
                     </span>
                     <span className="text-sm sm:text-base pt-0.5 flex-1 leading-relaxed">
                       <strong className="mr-1.5">{opt.key}.</strong>
-                      <FormattedContent text={opt.text} />
+                      <FormattedContent text={opt.text} compact />
                     </span>
                   </button>
                 );
@@ -1079,6 +1190,23 @@ export default function ExamModePage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PROCTORING EMERGENCY WARNING MODAL */}
+      <ProctoringWarningModal
+        isOpen={proctoring.showWarningModal}
+        warning={proctoring.currentWarning}
+        onDismiss={proctoring.dismissWarning}
+        isLimitReached={proctoring.isDisqualified}
+        submitting={submitting}
+      />
+
+      {/* PROCTORING TEMPORARY TOAST BANNER */}
+      {proctoring.toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900/90 text-white border border-slate-700 shadow-2xl text-xs sm:text-sm font-semibold flex items-center gap-2 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 select-none">
+          <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{proctoring.toastMessage}</span>
         </div>
       )}
 

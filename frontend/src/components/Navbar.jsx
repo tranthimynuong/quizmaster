@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Sun,
-  Moon
+  Moon,
+  Gamepad2
 } from 'lucide-react';
 
 export default function Navbar({ darkMode, setDarkMode }) {
@@ -159,6 +160,20 @@ export default function Navbar({ darkMode, setDarkMode }) {
                 }`}
               >
                 Chủ Đề
+              </Link>
+              <Link
+                to="/live/join"
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  isActive('/live/join') || location.pathname.startsWith('/live/')
+                    ? 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <Gamepad2 className="w-3.5 h-3.5 text-rose-500" />
+                <span>Đấu Trường</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-black uppercase tracking-wider animate-pulse">
+                  Live
+                </span>
               </Link>
 
               {/* Creator links */}

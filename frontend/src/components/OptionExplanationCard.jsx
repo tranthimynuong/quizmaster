@@ -1,12 +1,16 @@
-import React from 'react';
-import { Check, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, X, Bot, Sparkles } from 'lucide-react';
 import FormattedContent from './FormattedContent';
+import AITutorModal from './AITutorModal';
 
 export default function OptionExplanationCard({
   question,
   selectedOption,
-  showAll = true
+  showAll = true,
+  quizId = null
 }) {
+  const [isAITutorOpen, setIsAITutorOpen] = useState(false);
+
   if (!question) return null;
 
   const options = [
@@ -61,7 +65,7 @@ export default function OptionExplanationCard({
               <div className="flex-1 min-w-0 pt-0.5">
                 <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
                   <strong className={`mr-1.5 ${letterStyle}`}>{opt.key}.</strong>
-                  <FormattedContent text={opt.text} />
+                  <FormattedContent text={opt.text} compact />
                 </span>
               </div>
             </div>
@@ -96,6 +100,28 @@ export default function OptionExplanationCard({
           </div>
         );
       })}
+
+      {/* AI Tutor Guidance Button */}
+      <div className="pt-2 flex items-center justify-between flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setIsAITutorOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-indigo-500/10 hover:from-indigo-500/20 hover:to-purple-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold transition-all shadow-2xs hover:shadow-sm"
+        >
+          <Bot className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>Hỏi Gia Sư AI giải thích sâu</span>
+          <Sparkles className="w-3 h-3 text-amber-500" />
+        </button>
+      </div>
+
+      {/* Floating AI Tutor Modal */}
+      <AITutorModal
+        isOpen={isAITutorOpen}
+        onClose={() => setIsAITutorOpen(false)}
+        quizId={quizId || question.quiz_id}
+        question={question}
+        userChoice={selectedOption}
+      />
     </div>
   );
 }

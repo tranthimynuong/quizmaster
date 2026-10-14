@@ -64,6 +64,7 @@ class Question(Base):
     explanation_b = Column(Text, nullable=True)
     explanation_c = Column(Text, nullable=True)
     explanation_d = Column(Text, nullable=True)
+    image_url = Column(String(500), nullable=True) # Optional question illustration / diagram URL
 
     quiz = relationship("Quiz", back_populates="questions")
 
@@ -80,3 +81,27 @@ class QuizAttempt(Base):
 
     quiz = relationship("Quiz", back_populates="attempts")
     user = relationship("User", back_populates="attempts")
+
+
+class UserCardReview(Base):
+    __tablename__ = "user_card_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    quiz_id = Column(Integer, ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # SM-2 / FSRS parameters
+    repetition = Column(Integer, default=0) # Consecutive successful reviews
+    interval_days = Column(Integer, default=1) # Current interval in days
+    ease_factor = Column(Numeric(4, 2), default=2.50) # Difficulty multiplier (min 1.30)
+    last_grade = Column(Integer, nullable=True) # 1: Again, 2: Hard, 3: Good, 4: Easy
+    state = Column(String(20), default="new") # 'new', 'learning', 'review', 'mastered'
+    
+    last_reviewed_at = Column(DateTime(timezone=True), server_default=func.now())
+    next_review_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    question = relationship("Question")
+    quiz = relationship("Quiz")
+    user = relationship("User")
+

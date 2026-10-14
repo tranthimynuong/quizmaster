@@ -26,16 +26,26 @@ export function getAuthHeaders(isJson = true) {
 
 // ================= AUTH SERVICES =================
 export async function loginUser(credentials) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(credentials),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || 'Đăng nhập không thành công.');
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (res.status === 500) {
+        throw new Error(err.detail || 'Máy chủ trả về mã lỗi 500. Vui lòng kiểm tra cổng Backend (8000).');
+      }
+      throw new Error(err.detail || 'Đăng nhập không thành công. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu.');
+    }
+    return res.json();
+  } catch (error) {
+    if (error.name === 'TypeError' || error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      throw new Error('Không thể kết nối đến máy chủ Backend (Port 8000). Vui lòng đảm bảo Backend đang chạy.');
+    }
+    throw error;
   }
-  return res.json();
 }
 
 export async function registerUser(userData) {
@@ -359,7 +369,24 @@ export async function submitQuizAttempt(quizId, submissionData) {
   return res.json();
 }
 
-export async function parsePdfQuiz(files, { title, subjectId, autoSave = true, isPublic = true }) {
+export async function askAITutor(quizId, questionId, { userChoice = null, studentPrompt = '', mode = 'explain_wrong' } = {}) {
+  const res = await fetch(`${API_BASE}/quizzes/${quizId}/questions/${questionId}/ai-tutor`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      user_choice: userChoice,
+      student_prompt: studentPrompt,
+      mode: mode,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể kết nối với Gia Sư AI.');
+  }
+  return res.json();
+}
+
+export async function parsePdfQuiz(files, { title, subjectId, autoSave = true, isPublic = true, aiDeepScan = false }) {
   const formData = new FormData();
   const fileList = Array.isArray(files) ? files : [files];
   fileList.forEach(f => {
@@ -369,6 +396,7 @@ export async function parsePdfQuiz(files, { title, subjectId, autoSave = true, i
   if (subjectId) formData.append('subject_id', subjectId);
   formData.append('auto_save', autoSave);
   formData.append('is_public', isPublic);
+  formData.append('ai_deep_scan', aiDeepScan);
 
   const headers = getAuthHeaders(false);
 
@@ -379,18 +407,19 @@ export async function parsePdfQuiz(files, { title, subjectId, autoSave = true, i
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || 'Lỗi khi phân tích file PDF.');
+    throw new Error(err.detail || 'Lỗi khi phân tích file đề thi.');
   }
   return res.json();
 }
 
-export async function appendPdfToQuiz(shareCode, files, chapterName = '') {
+export async function appendPdfToQuiz(shareCode, files, chapterName = '', aiDeepScan = false) {
   const formData = new FormData();
   const fileList = Array.isArray(files) ? files : [files];
   fileList.forEach(f => {
     formData.append('files', f);
   });
   if (chapterName) formData.append('chapter_name', chapterName);
+  formData.append('ai_deep_scan', aiDeepScan);
 
   const headers = getAuthHeaders(false);
 
@@ -443,3 +472,82 @@ export async function deleteSubject(subjectId) {
   }
   return res.json();
 }
+
+// ================= LIVE MULTIPLAYER QUIZ (KAHOOT STYLE) =================
+export function getWebSocketBaseUrl() {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL.replace(/\/+$/, '');
+  }
+  const loc = window.location;
+  const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  // If running in development with Vite port 5173, backend defaults to 8000
+  if (import.meta.env.DEV) {
+    return `${proto}//${loc.hostname}:8000`;
+  }
+  return `${proto}//${loc.host}`;
+}
+
+export async function createLiveRoom(quizId, durationSeconds = 25) {
+  const res = await fetch(`${API_BASE}/live/create-room`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      quiz_id: quizId,
+      duration_seconds: durationSeconds,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể tạo phòng đấu trường trực tiếp.');
+  }
+  return res.json();
+}
+
+export async function fetchLiveRoomInfo(pin) {
+  const res = await fetch(`${API_BASE}/live/room/${pin}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Phòng không tồn tại hoặc đã kết thúc.');
+  }
+  return res.json();
+}
+
+// ================= SPACED REPETITION (SM-2 / FSRS) =================
+export async function fetchSpacedCards(quizId) {
+  const res = await fetch(`${API_BASE}/quizzes/${quizId}/spaced/cards`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể tải danh sách thẻ ôn tập.');
+  }
+  return res.json();
+}
+
+export async function submitCardReview(quizId, questionId, grade) {
+  const res = await fetch(`${API_BASE}/quizzes/${quizId}/spaced/review`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ question_id: questionId, grade }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể lưu đánh giá thẻ ôn tập.');
+  }
+  return res.json();
+}
+
+export async function fetchSpacedStats(quizId) {
+  const res = await fetch(`${API_BASE}/quizzes/${quizId}/spaced/stats`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Không thể tải thống kê trí nhớ.');
+  }
+  return res.json();
+}
+
+

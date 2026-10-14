@@ -71,12 +71,6 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     login_id = data.email_or_username.strip()
     clean_id = login_id.lower()
     
-    # Search by email or username (case-insensitive)
-    user = db.query(User).filter(
-        (User.email.ilike(login_id)) | (User.username.ilike(login_id))
-    ).first()
-
-    # Self-healing auto-provision for default system accounts (admin, teacher, student)
     default_system_accounts = {
         "admin": {
             "email": "admin@quizmaster.local",
@@ -104,63 +98,81 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
         }
     }
 
-    if not user and clean_id in default_system_accounts:
-        acc_info = default_system_accounts[clean_id]
-        if data.password == acc_info["password"]:
-            try:
-                user = User(
-                    email=acc_info["email"],
-                    username=acc_info["role"],
-                    full_name=acc_info["full_name"],
-                    hashed_password=hash_password(acc_info["password"]),
-                    role=acc_info["role"],
-                    is_active=True
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            except Exception:
-                db.rollback()
-                user = db.query(User).filter(
-                    (User.email.ilike(acc_info["email"])) | (User.username.ilike(acc_info["role"]))
-                ).first()
+    try:
+        # Search by email or username (case-insensitive)
+        user = db.query(User).filter(
+            (User.email.ilike(login_id)) | (User.username.ilike(login_id))
+        ).first()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản không tồn tại. Vui lòng kiểm tra lại Email hoặc Tên đăng nhập."
+        # Self-healing auto-provision for default system accounts (admin, teacher, student)
+        if not user and clean_id in default_system_accounts:
+            acc_info = default_system_accounts[clean_id]
+            if data.password == acc_info["password"]:
+                try:
+                    user = User(
+                        email=acc_info["email"],
+                        username=acc_info["role"],
+                        full_name=acc_info["full_name"],
+                        hashed_password=hash_password(acc_info["password"]),
+                        role=acc_info["role"],
+                        is_active=True
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+                except Exception as ex:
+                    logger.warning(f"Failed to auto-create default user {clean_id}: {ex}")
+                    db.rollback()
+                    user = db.query(User).filter(
+                        (User.email.ilike(acc_info["email"])) | (User.username.ilike(acc_info["role"]))
+                    ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Tài khoản không tồn tại. Vui lòng kiểm tra lại Email hoặc Tên đăng nhập."
+            )
+
+        # Check password
+        is_valid = verify_password(data.password, user.hashed_password) if user.hashed_password else False
+        
+        # Auto-heal default accounts if password matches default definition
+        if not is_valid and clean_id in default_system_accounts and data.password == default_system_accounts[clean_id]["password"]:
+            user.hashed_password = hash_password(default_system_accounts[clean_id]["password"])
+            user.is_active = True
+            db.commit()
+            db.refresh(user)
+            is_valid = True
+
+        if not is_valid:
+            hint = f" Mật khẩu mặc định: {default_system_accounts[clean_id]['password']}" if clean_id in default_system_accounts else ""
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Mật khẩu không chính xác.{hint}"
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tài khoản này đã bị khóa. Vui lòng liên hệ quản trị viên."
+            )
+
+        token = create_access_token({"sub": str(user.id), "role": user.role, "username": user.username})
+
+        return AuthResponse(
+            access_token=token,
+            token_type="bearer",
+            user=UserOut.model_validate(user)
         )
 
-    # Check password
-    is_valid = verify_password(data.password, user.hashed_password)
-    
-    # Auto-heal default accounts if password matches default definition
-    if not is_valid and clean_id in default_system_accounts and data.password == default_system_accounts[clean_id]["password"]:
-        user.hashed_password = hash_password(default_system_accounts[clean_id]["password"])
-        user.is_active = True
-        db.commit()
-        db.refresh(user)
-        is_valid = True
-
-    if not is_valid:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during login for {login_id}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Mật khẩu không chính xác. Vui lòng thử lại."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Lỗi hệ thống khi xử lý đăng nhập. Vui lòng thử lại sau giây lát."
         )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tài khoản này đã bị khóa. Vui lòng liên hệ quản trị viên."
-        )
-
-    token = create_access_token({"sub": str(user.id), "role": user.role, "username": user.username})
-
-    return AuthResponse(
-        access_token=token,
-        token_type="bearer",
-        user=UserOut.model_validate(user)
-    )
 
 
 @router.get("/me", response_model=UserOut)

@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   BookMarked,
+  BrainCircuit,
   Plus,
   Upload,
   FileCheck,
@@ -37,7 +38,9 @@ import {
   RotateCcw,
   Globe,
   Lock,
-  Unlock
+  Unlock,
+  Gamepad2,
+  Zap
 } from 'lucide-react';
 import {
   fetchQuizDetail,
@@ -110,6 +113,7 @@ export default function QuizDetailPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [isUploadingChapter, setIsUploadingChapter] = useState(false);
+  const [appendAiDeepScan, setAppendAiDeepScan] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
 
@@ -144,6 +148,7 @@ export default function QuizDetailPage() {
   const [qExpB, setQExpB] = useState('');
   const [qExpC, setQExpC] = useState('');
   const [qExpD, setQExpD] = useState('');
+  const [qImageUrl, setQImageUrl] = useState('');
   const [isUpdatingQuestion, setIsUpdatingQuestion] = useState(false);
   const [isAiSolving, setIsAiSolving] = useState(false);
   const [aiSolveNotice, setAiSolveNotice] = useState(null);
@@ -256,14 +261,19 @@ export default function QuizDetailPage() {
     }
   };
 
+  const isValidExamFile = (file) => {
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    return ['.pdf', '.docx', '.txt', '.md'].includes(ext);
+  };
+
   const addFiles = (incoming) => {
-    const pdfs = incoming.filter(f => f.name.toLowerCase().endsWith('.pdf'));
-    if (pdfs.length === 0) {
-      setUploadError('Vui lòng chỉ chọn các file định dạng PDF (.pdf).');
+    const validDocs = incoming.filter(isValidExamFile);
+    if (validDocs.length === 0) {
+      setUploadError('Vui lòng chọn các file định dạng được hỗ trợ: PDF (.pdf), Word (.docx), TXT (.txt), Markdown (.md).');
       return;
     }
     setUploadError(null);
-    setNewChapterPdfs(prev => [...prev, ...pdfs]);
+    setNewChapterPdfs(prev => [...prev, ...validDocs]);
   };
 
   const handleRemoveFile = (idx) => {
@@ -273,7 +283,7 @@ export default function QuizDetailPage() {
   const handleAppendChapter = async (e) => {
     e.preventDefault();
     if (newChapterPdfs.length === 0) {
-      setUploadError('Vui lòng chọn hoặc kéo thả ít nhất 1 file PDF để tải lên.');
+      setUploadError('Vui lòng chọn hoặc kéo thả ít nhất 1 file tài liệu để tải lên.');
       return;
     }
 
@@ -282,17 +292,18 @@ export default function QuizDetailPage() {
     setUploadSuccess(null);
 
     try {
-      const updatedQuiz = await appendPdfToQuiz(quiz.share_code, newChapterPdfs, newChapterTitle);
+      const updatedQuiz = await appendPdfToQuiz(quiz.share_code, newChapterPdfs, newChapterTitle, appendAiDeepScan);
       setQuiz(updatedQuiz);
-      setUploadSuccess(`Đã nạp thành công ${newChapterPdfs.length} file PDF vào bộ đề! Hiện có tổng cộng ${updatedQuiz.questions?.length || 0} câu hỏi.`);
+      setUploadSuccess(`Đã nạp thành công ${newChapterPdfs.length} file tài liệu vào bộ đề! Hiện có tổng cộng ${updatedQuiz.questions?.length || 0} câu hỏi.`);
       setTimeout(() => {
         setIsAddChapterOpen(false);
         setNewChapterPdfs([]);
         setNewChapterTitle('');
+        setAppendAiDeepScan(false);
         setUploadSuccess(null);
       }, 1500);
     } catch (err) {
-      setUploadError(err.message || 'Lỗi khi nạp file PDF bài mới.');
+      setUploadError(err.message || 'Lỗi khi nạp file đề thi bài mới.');
     } finally {
       setIsUploadingChapter(false);
     }
@@ -415,6 +426,7 @@ export default function QuizDetailPage() {
     setQExpB(q.explanation_b || '');
     setQExpC(q.explanation_c || '');
     setQExpD(q.explanation_d || '');
+    setQImageUrl(q.image_url || '');
     setEditQuestionError(null);
     setIsEditQuestionOpen(true);
   };
@@ -440,7 +452,8 @@ export default function QuizDetailPage() {
         explanation_a: qExpA.trim(),
         explanation_b: qExpB.trim(),
         explanation_c: qExpC.trim(),
-        explanation_d: qExpD.trim()
+        explanation_d: qExpD.trim(),
+        image_url: qImageUrl.trim() || null
       });
       await loadQuiz();
       setIsEditQuestionOpen(false);
@@ -688,22 +701,38 @@ export default function QuizDetailPage() {
             </div>
           )}
 
-          {/* 2 MAIN ACTION BUTTONS */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-xl">
+          {/* 4 MAIN ACTION BUTTONS */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 max-w-4xl">
             <Link
               to={`/quiz/${quiz.share_code}/practice`}
-              className="flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 active:scale-98 transition-all"
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs shadow-lg shadow-indigo-500/25 active:scale-98 transition-all text-center"
             >
-              <GraduationCap className="w-5 h-5" />
-              <span>{savedPracticeProgress ? 'Bắt Đầu Học Mới' : 'Ôn Luyện Tự Do (Tất Cả)'}</span>
+              <GraduationCap className="w-4 h-4 shrink-0" />
+              <span>{savedPracticeProgress ? 'Học Mới' : 'Ôn Luyện'}</span>
             </Link>
 
             <Link
               to={`/quiz/${quiz.share_code}/exam`}
-              className="flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-sm shadow-md active:scale-98 transition-all"
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs shadow-md active:scale-98 transition-all text-center"
             >
-              <Play className="w-5 h-5 fill-current" />
-              <span>Vào Phòng Thi Thử</span>
+              <Play className="w-4 h-4 fill-current shrink-0" />
+              <span>Phòng Thi Thử</span>
+            </Link>
+
+            <Link
+              to={`/quiz/${quiz.share_code}/flashcards`}
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 active:scale-98 transition-all text-center"
+            >
+              <BrainCircuit className="w-4 h-4 shrink-0" />
+              <span>Flashcard SM-2</span>
+            </Link>
+
+            <Link
+              to={`/live/host/${quiz.share_code}`}
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:from-amber-400 hover:to-purple-500 text-white font-bold text-xs shadow-lg shadow-rose-500/25 active:scale-98 transition-all text-center"
+            >
+              <Gamepad2 className="w-4 h-4 shrink-0" />
+              <span>Đấu Trường Live</span>
             </Link>
           </div>
         </div>
@@ -1068,7 +1097,7 @@ export default function QuizDetailPage() {
                                       {qIdx + 1}
                                     </span>
                                     <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white leading-relaxed flex-1">
-                                      <FormattedContent text={q.content} />
+                                      <FormattedContent text={q.content} imageUrl={q.image_url} />
                                     </div>
                                   </div>
 
@@ -1095,16 +1124,16 @@ export default function QuizDetailPage() {
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:pl-9">
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'A' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> <FormattedContent text={q.option_a} />
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> <FormattedContent text={q.option_a} compact />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'B' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> <FormattedContent text={q.option_b} />
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> <FormattedContent text={q.option_b} compact />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'C' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> <FormattedContent text={q.option_c} />
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> <FormattedContent text={q.option_c} compact />
                                   </div>
                                   <div className={`p-2.5 rounded-xl border transition-all ${correct === 'D' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> <FormattedContent text={q.option_d} />
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> <FormattedContent text={q.option_d} compact />
                                   </div>
                                 </div>
                               </div>
@@ -1514,6 +1543,20 @@ export default function QuizDetailPage() {
                 />
               </div>
 
+              {/* Image URL (Optional) */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                  Đường dẫn hình ảnh minh hoạ (Tùy chọn):
+                </label>
+                <input
+                  type="text"
+                  value={qImageUrl}
+                  onChange={(e) => setQImageUrl(e.target.value)}
+                  placeholder="VD: /uploads/questions/fig1.png hoặc https://..."
+                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
               <div className="flex gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
@@ -1547,12 +1590,28 @@ export default function QuizDetailPage() {
               <CloseIcon className="w-5 h-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-              Nạp Thêm Bài Mới Từ File PDF
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">
+              Nạp Thêm Bài Mới Từ File (PDF / Word / TXT / MD)
             </h3>
-            <p className="text-xs text-slate-500 mb-6">
-              Kéo thả các file PDF bài mới vào bộ đề này
+            <p className="text-xs text-slate-500 mb-4">
+              Kéo thả các tài liệu bài mới vào bộ đề này để bổ sung thêm câu hỏi.
             </p>
+
+            {/* Format badges */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-4">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50">
+                PDF (.pdf)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50">
+                Word (.docx)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50">
+                TXT (.txt)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-900/50">
+                Markdown (.md)
+              </span>
+            </div>
 
             {uploadSuccess && (
               <div className="mb-4 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-300 text-xs flex items-center gap-2">
@@ -1592,14 +1651,14 @@ export default function QuizDetailPage() {
               >
                 <Upload className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                  Kéo thả file PDF vào đây hoặc
+                  Kéo thả file PDF, Word (.docx), TXT, Markdown vào đây hoặc
                 </p>
                 <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs cursor-pointer hover:bg-indigo-500 transition-all">
                   <FilePlus className="w-3.5 h-3.5" />
-                  <span>Chọn file PDF</span>
+                  <span>Chọn file từ máy tính</span>
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.docx,.txt,.md"
                     multiple
                     className="hidden"
                     onChange={handleFileInput}
@@ -1607,20 +1666,64 @@ export default function QuizDetailPage() {
                 </label>
               </div>
 
+              {/* AI DEEP SCAN TOGGLE IN MODAL */}
+              <div className="p-3 rounded-2xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-300/40 dark:border-amber-700/40 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-500 shrink-0" />
+                  <div className="text-left">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                      Quét Sâu AI (Gemini Flash)
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Bóc tách công thức Toán, bảng biểu & scanned PDF
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAppendAiDeepScan(!appendAiDeepScan)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    appendAiDeepScan ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
+                  }`}
+                  role="switch"
+                  aria-checked={appendAiDeepScan}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      appendAiDeepScan ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
               {newChapterPdfs.length > 0 && (
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {newChapterPdfs.map((f, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 truncate">{f.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(idx)}
-                        className="text-rose-500 hover:text-rose-600"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {newChapterPdfs.map((f, idx) => {
+                    const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
+                    const badgeColor =
+                      ext === '.docx' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' :
+                      ext === '.pdf' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300' :
+                      ext === '.md' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300' :
+                      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300';
+
+                    return (
+                      <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs">
+                        <div className="flex items-center gap-1.5 truncate pr-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase shrink-0 ${badgeColor}`}>
+                            {ext.replace('.', '')}
+                          </span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 truncate">{f.name}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(idx)}
+                          className="text-rose-500 hover:text-rose-600 shrink-0 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -1638,7 +1741,11 @@ export default function QuizDetailPage() {
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <Upload className="w-4 h-4" />
-                  <span>{isUploadingChapter ? 'Đang nạp PDF...' : 'Nạp Vào Bộ Đề'}</span>
+                  <span>
+                    {isUploadingChapter
+                      ? (appendAiDeepScan ? 'AI đang bóc tách...' : 'Đang nạp file...')
+                      : (appendAiDeepScan ? 'Quét Sâu AI & Nạp' : 'Nạp Vào Bộ Đề')}
+                  </span>
                 </button>
               </div>
             </form>

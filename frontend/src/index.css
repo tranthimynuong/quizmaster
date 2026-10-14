@@ -60,3 +60,70 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* KaTeX Math Styling */
+.katex {
+  font-size: 1.05em !important;
+  text-rendering: geometricPrecision;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+  margin: 0.75rem 0 !important;
+}
+
+/* Code Highlighting Custom Prism Theme matching sleek IDEs */
+.formatted-content pre {
+  margin: 0;
+  background: transparent !important;
+}
+
+.formatted-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Code token color enhancements */
+.formatted-content .token.keyword {
+  color: #c084fc !important; /* purple-400 */
+  font-weight: 600;
+}
+
+.formatted-content .token.string {
+  color: #fbbf24 !important; /* amber-400 */
+}
+
+.formatted-content .token.number {
+  color: #34d399 !important; /* emerald-400 */
+}
+
+.formatted-content .token.function,
+.formatted-content .token.builtin {
+  color: #38bdf8 !important; /* sky-400 */
+  font-weight: 500;
+}
+
+.formatted-content .token.operator {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.formatted-content .token.punctuation {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.formatted-content .token.comment {
+  color: #64748b !important; /* slate-500 */
+  font-style: italic;
+}
+
+.formatted-content .token.boolean {
+  color: #f43f5e !important; /* rose-500 */
+  font-weight: 600;
+}
+
+.formatted-content .token.variable,
+.formatted-content .token.property {
+  color: #7dd3fc !important; /* sky-300 */
+}
+

@@ -1,199 +1,402 @@
-import React, { useState } from 'react';
-import { Copy, Check, Code2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
+import rehypeKatex from 'rehype-katex';
+import Prism from 'prismjs';
+import { Copy, Check, Code2, Terminal, ZoomIn, X, ExternalLink } from 'lucide-react';
 
-// Lightweight token-based syntax highlighter for Python / JS / SQL code
-function highlightCode(codeStr) {
-  if (!codeStr) return '';
+// Load Prism language components
+import 'prismjs/components/prism-clike';
+import 'prismjs/components/prism-c';
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-typescript';
 
-  // Escape HTML entities first
-  const escaped = codeStr
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+/**
+ * Maps common language aliases to Prism supported languages
+ */
+const LANGUAGE_MAP = {
+  py: 'python',
+  python: 'python',
+  js: 'javascript',
+  javascript: 'javascript',
+  ts: 'typescript',
+  typescript: 'typescript',
+  c: 'c',
+  cpp: 'cpp',
+  'c++': 'cpp',
+  cs: 'csharp',
+  csharp: 'csharp',
+  java: 'java',
+  sql: 'sql',
+  html: 'markup',
+  xml: 'markup',
+  css: 'css',
+  sh: 'bash',
+  bash: 'bash',
+  shell: 'bash',
+  json: 'json'
+};
 
-  // Regex patterns
-  const patterns = [
-    // Comments (# or //)
-    {
-      regex: /(#.*?$|\/\/.*?$)/gm,
-      cls: 'text-slate-400 dark:text-slate-500 italic'
-    },
-    // Strings ('...' or "..." or `...`)
-    {
-      regex: /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g,
-      cls: 'text-amber-500 dark:text-amber-400 font-normal'
-    },
-    // Python & JS Keywords
-    {
-      regex: /\b(def|class|return|import|from|if|elif|else|for|while|in|try|except|finally|with|as|lambda|yield|pass|break|continue|raise|is|not|and|or|async|await|const|let|var|function|new|switch|case|default|typeof|instanceof|void|SELECT|FROM|WHERE|INSERT|INTO|UPDATE|DELETE|GROUP|BY|ORDER|JOIN|LEFT|RIGHT|INNER|ON|CREATE|TABLE|DROP|ALTER|PRIMARY|KEY)\b/g,
-      cls: 'text-purple-600 dark:text-purple-400 font-bold'
-    },
-    // Builtins & Booleans / None
-    {
-      regex: /\b(True|False|None|null|undefined|true|false|self|this)\b/g,
-      cls: 'text-rose-500 dark:text-rose-400 font-bold'
-    },
-    // Common built-in functions
-    {
-      regex: /\b(print|len|range|enumerate|zip|append|extend|pop|get|items|keys|values|sum|min|max|sorted|type|isinstance|int|float|str|list|dict|set|tuple|open|input|map|filter|console\.log)\b/g,
-      cls: 'text-sky-600 dark:text-sky-400 font-semibold'
-    },
-    // Numbers
-    {
-      regex: /\b(\d+(?:\.\d+)?)\b/g,
-      cls: 'text-emerald-600 dark:text-emerald-400'
-    }
-  ];
-
-  // We split text into safe highlighted chunks using token replacement
-  let tokens = [];
-  let tokenized = escaped;
-
-  patterns.forEach(({ regex, cls }) => {
-    tokenized = tokenized.replace(regex, (match) => {
-      const id = `___TOK${tokens.length}___`;
-      tokens.push(`<span class="${cls}">${match}</span>`);
-      return id;
-    });
-  });
-
-  // Restore tokens
-  tokens.forEach((html, i) => {
-    tokenized = tokenized.replace(new RegExp(`___TOK${i}___`, 'g'), html);
-  });
-
-  return tokenized;
+/**
+ * Automatically detects language from code content when not explicitly specified
+ */
+function detectLanguage(codeStr) {
+  if (!codeStr) return 'python';
+  if (/^#include|std::|cout\s*<<|cin\s*>>/m.test(codeStr)) return 'cpp';
+  if (/public\s+class|public\s+static\s+void|System\.out\.print/m.test(codeStr)) return 'java';
+  if (/\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|GROUP\s+BY|ORDER\s+BY|CREATE\s+TABLE)\b/i.test(codeStr)) return 'sql';
+  if (/\b(const|let|var|function|console\.log|=>)\b/.test(codeStr)) return 'javascript';
+  if (/\b(def|elif|import|self|print|len|range|lambda)\b/.test(codeStr) || /[a-zA-Z_]\w*\s*=\s*[\{\[\(]/.test(codeStr)) return 'python';
+  return 'python';
 }
 
-// Multi-line code block component
-function CodeBlock({ code, language = 'python' }) {
+/**
+ * Syntax-highlighter with Prism
+ */
+function highlightCode(code, lang) {
+  if (!code) return '';
+  const normalized = (lang || '').toLowerCase();
+  const targetLang = LANGUAGE_MAP[normalized] || detectLanguage(code);
+  const grammar = Prism.languages[targetLang] || Prism.languages.python || Prism.languages.clike;
+
+  try {
+    return Prism.highlight(code, grammar, targetLang);
+  } catch (err) {
+    // Safe HTML escape fallback
+    return code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+}
+
+/**
+ * Modern dark-themed code block with language badge, copy button, and optional line numbers
+ */
+function CodeBlock({ code, language }) {
   const [copied, setCopied] = useState(false);
+  const cleanCode = code ? code.replace(/\r\n/g, '\n').trimEnd() : '';
+  const detectedLang = language || detectLanguage(cleanCode);
+  const displayLang = (LANGUAGE_MAP[detectedLang] || detectedLang).toUpperCase();
 
   const handleCopy = (e) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(code);
+    navigator.clipboard.writeText(cleanCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const highlightedHtml = highlightCode(code.trim());
+  const highlightedHtml = highlightCode(cleanCode, detectedLang);
+  const lines = cleanCode.split('\n');
+  const showLineNumbers = lines.length > 2;
 
   return (
-    <div className="my-2.5 rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-900 shadow-md text-left text-xs sm:text-sm font-mono select-text">
-      {/* Code Header */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-slate-800/90 border-b border-slate-700/60 text-[11px] text-slate-300 font-sans">
-        <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-indigo-400">
-          <Code2 className="w-3.5 h-3.5" />
-          <span>{language || 'Code'}</span>
+    <div className="my-3 rounded-2xl overflow-hidden border border-slate-700/80 bg-[#16181d] shadow-lg text-left select-text group/code transition-all">
+      {/* Code Header Bar */}
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#1e222a] border-b border-slate-700/60 text-xs text-slate-300 select-none">
+        <div className="flex items-center gap-1.5 font-bold tracking-wider text-indigo-400 font-mono text-[11px]">
+          {detectedLang === 'bash' || detectedLang === 'sh' ? (
+            <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+          ) : (
+            <Code2 className="w-3.5 h-3.5 text-indigo-400" />
+          )}
+          <span>{displayLang}</span>
         </div>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          title="Sao chép mã nguồn"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-[11px] font-sans font-medium border border-slate-700/50"
+          title="Sao chép đoạn mã"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-          <span>{copied ? 'Đã chép' : 'Chép code'}</span>
+          {copied ? (
+            <>
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span className="text-emerald-400 font-semibold">Đã chép</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3 text-slate-400" />
+              <span>Chép code</span>
+            </>
+          )}
         </button>
       </div>
 
-      {/* Code Body */}
-      <div className="p-3.5 overflow-x-auto text-slate-100 leading-relaxed whitespace-pre font-mono">
-        <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+      {/* Code Content */}
+      <div className="p-3.5 overflow-x-auto text-[13px] sm:text-sm font-mono leading-relaxed text-slate-100 flex">
+        {showLineNumbers && (
+          <div className="select-none pr-3 mr-3 border-r border-slate-800 text-slate-600 text-right font-mono text-[12px] leading-relaxed">
+            {lines.map((_, i) => (
+              <div key={i}>{i + 1}</div>
+            ))}
+          </div>
+        )}
+        <div className="flex-1 whitespace-pre overflow-x-auto font-mono">
+          <code
+            className={`language-${detectedLang}`}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-// Inline code badge
-function InlineCode({ code }) {
+/**
+ * Intelligent text preprocessor:
+ * 1. Normalizes LaTeX expressions: \(...\) -> $...$ and \[...\] -> $$...$$
+ * 2. Detects raw multiline programming code blocks that lack triple-backticks and wraps them.
+ */
+function preprocessContent(rawText) {
+  if (!rawText || typeof rawText !== 'string') return '';
+
+  let text = rawText;
+
+  // 1. Normalize LaTeX delimiters
+  // Convert escaped \( ... \) or raw \( ... \) to $ ... $
+  text = text.replace(/\\\\\((.*?)\\\\\)/gs, '$$$1$$');
+  text = text.replace(/\\\((.*?)\\\)/gs, '$$$1$$');
+  // Convert escaped \[ ... \] or raw \[ ... \] to $$ ... $$
+  text = text.replace(/\\\\\[(.*?)\\\\\]/gs, '\n\n$$$$\n$1\n$$$$\n\n');
+  text = text.replace(/\\\[(.*?)\\\]/gs, '\n\n$$$$\n$1\n$$$$\n\n');
+
+  // Convert legacy [IMAGE_URL: ...] tags to Markdown image
+  text = text.replace(/\[IMAGE_URL:\s*([^\]]+)\]/gi, '\n\n![]($1)\n\n');
+
+  // If text already has code fences, return normalized math
+  if (text.includes('```')) {
+    return text;
+  }
+
+  // 2. Detect raw code blocks when not enclosed in ```
+  const lines = text.split('\n');
+  if (lines.length >= 2) {
+    const isCodeLine = (l) => {
+      const trimmed = l.trim();
+      if (!trimmed) return false;
+      // Keywords start
+      if (/^(def\s+|class\s+|import\s+|from\s+|for\s+|while\s+|if\s+|elif\s+|else:|return\s+|print\s*\(|console\.log|#include|public\s+|private\s+|int\s+|float\s+|double\s+|char\s+|SELECT\s+)/i.test(trimmed)) return true;
+      // Variable assignment with array/set/dict/tuple/function call
+      if (/^[a-zA-Z_]\w*\s*=\s*[\{\[\(\"\'0-9]/.test(trimmed)) return true;
+      // Methods / conditions
+      if (/\b(if\s+.+\s+else\b|\.issubset|\.append|\.extend|\.split|\.join|len\(|range\()/.test(trimmed)) return true;
+      if (/^[a-zA-Z_]\w*\s*\(.*\)\s*;?$/.test(trimmed)) return true;
+      if (/^[{}();]+$/.test(trimmed)) return true;
+      return false;
+    };
+
+    let inCode = false;
+    let codeChunk = [];
+    const newLines = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCodeLine(line)) {
+        inCode = true;
+        codeChunk.push(line);
+      } else {
+        if (inCode && codeChunk.length > 0) {
+          const lang = detectLanguage(codeChunk.join('\n'));
+          newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n') + '\n```');
+          codeChunk = [];
+          inCode = false;
+        }
+        newLines.push(line);
+      }
+    }
+
+    if (inCode && codeChunk.length > 0) {
+      const lang = detectLanguage(codeChunk.join('\n'));
+      newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n') + '\n```');
+    }
+
+    text = newLines.join('\n');
+  }
+
+  return text;
+}
+
+/**
+ * Clickable Image with Lightbox Zoom
+ */
+function ImageCard({ src, alt }) {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!src) return null;
+
   return (
-    <code className="font-mono text-[0.88em] bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded-lg border border-slate-200/90 dark:border-slate-700/80 font-bold mx-0.5 select-text inline-block align-baseline whitespace-pre-wrap">
-      {code}
-    </code>
+    <>
+      <div className="my-3 inline-block group relative cursor-pointer" onClick={() => setIsOpen(true)}>
+        <div className="relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shadow-sm transition hover:shadow-md hover:border-indigo-400">
+          <img
+            src={src}
+            alt={alt || "Hình minh hoạ câu hỏi"}
+            className="max-h-64 max-w-full sm:max-w-md object-contain rounded-2xl mx-auto block"
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white font-medium text-xs backdrop-blur-[1px]">
+            <ZoomIn className="w-4 h-4" />
+            <span>Xem cỡ lớn</span>
+          </div>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl p-3 shadow-2xl border border-slate-700/50 flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-full flex items-center justify-between pb-2 px-2 border-b border-slate-200 dark:border-slate-800 mb-2">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                Hình ảnh minh hoạ câu hỏi
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1.5 text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                  title="Mở tab mới"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto max-h-[78vh] flex items-center justify-center">
+              <img
+                src={src}
+                alt={alt || "Hình minh hoạ"}
+                className="max-h-full max-w-full object-contain rounded-xl"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
 /**
- * FormattedContent component:
- * Parses text and intelligently renders code blocks (fenced ```), inline code (`...`),
- * and regular formatted text.
+ * Universal FormattedContent Component:
+ * - Renders rich Markdown (lists, tables, bold, blockquotes)
+ * - Renders LaTeX mathematical formulas via KaTeX ($inline$ and $$block$$)
+ * - Renders programming code blocks with PrismJS syntax highlighting, copy button, line numbers
+ * - Renders question illustration images with interactive lightbox
  */
-export default function FormattedContent({ text, className = '' }) {
-  if (!text) return null;
+export default function FormattedContent({ text, imageUrl = null, className = '', compact = false }) {
+  if (!text && !imageUrl) return null;
 
-  if (typeof text !== 'string') {
-    return <span className={className}>{String(text)}</span>;
-  }
+  const rawText = text ? (typeof text === 'string' ? text : String(text)) : '';
+  const processedText = useMemo(() => preprocessContent(rawText), [rawText]);
 
-  // 1. Check for fenced code blocks: ```lang ... ```
-  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        content: text.slice(lastIndex, match.index)
-      });
-    }
-
-    parts.push({
-      type: 'code_block',
-      language: match[1] || 'code',
-      content: match[2]
-    });
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push({
-      type: 'text',
-      content: text.slice(lastIndex)
-    });
-  }
-
-  // Helper to parse inline backticks in text segments
-  const renderTextSegment = (str, partIdx) => {
-    // Check if the string has inline backticks: `code`
-    if (!str.includes('`')) {
-      // Check if the text contains code-like structure with newlines (heuristic)
-      return <span key={partIdx}>{str}</span>;
-    }
-
-    const inlineParts = [];
-    const inlineRegex = /`([^`]+)`/g;
-    let inlineLastIndex = 0;
-    let inlineMatch;
-
-    while ((inlineMatch = inlineRegex.exec(str)) !== null) {
-      if (inlineMatch.index > inlineLastIndex) {
-        inlineParts.push(str.slice(inlineLastIndex, inlineMatch.index));
-      }
-      inlineParts.push(
-        <InlineCode key={`inline-${inlineMatch.index}`} code={inlineMatch[1]} />
-      );
-      inlineLastIndex = inlineMatch.index + inlineMatch[0].length;
-    }
-
-    if (inlineLastIndex < str.length) {
-      inlineParts.push(str.slice(inlineLastIndex));
-    }
-
-    return <span key={partIdx}>{inlineParts}</span>;
-  };
+  // Check if text already has the image to prevent duplicate rendering
+  const textHasImage = imageUrl && (rawText.includes(imageUrl) || processedText.includes(imageUrl));
 
   return (
-    <span className={className}>
-      {parts.map((part, idx) => {
-        if (part.type === 'code_block') {
-          return <CodeBlock key={`block-${idx}`} code={part.content} language={part.language} />;
-        }
-        return renderTextSegment(part.content, idx);
-      })}
-    </span>
+    <div className={`formatted-content ${className} ${compact ? 'inline-block align-baseline' : ''}`}>
+      {imageUrl && !textHasImage && (
+        <div className="mb-3">
+          <ImageCard src={imageUrl} alt="Hình minh hoạ câu hỏi" />
+        </div>
+      )}
+
+      {processedText && (
+        <ReactMarkdown
+          remarkPlugins={[remarkMath, remarkGfm]}
+          rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
+          components={{
+            img({ src, alt }) {
+              return <ImageCard src={src} alt={alt} />;
+            },
+            code({ node, inline, className: codeClassName, children, ...props }) {
+              const match = /language-(\w+)/.exec(codeClassName || '');
+              const codeString = String(children).replace(/\n$/, '');
+
+              if (!inline && (match || codeString.includes('\n'))) {
+                return (
+                  <CodeBlock
+                    code={codeString}
+                    language={match ? match[1] : undefined}
+                  />
+                );
+              }
+
+              return (
+                <code
+                  className="font-mono text-[0.88em] bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded-lg border border-slate-200/90 dark:border-slate-700/80 font-bold mx-0.5 select-text inline-block align-baseline whitespace-pre-wrap"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            },
+            p({ children }) {
+              if (compact) {
+                return <span className="inline leading-relaxed">{children}</span>;
+              }
+              return <p className="mb-2 last:mb-0 leading-relaxed text-inherit">{children}</p>;
+            },
+            table({ children }) {
+              return (
+                <div className="overflow-x-auto my-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                    {children}
+                  </table>
+                </div>
+              );
+            },
+            th({ children }) {
+              return (
+                <th className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800/90 font-bold text-left text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+                  {children}
+                </th>
+              );
+            },
+            td({ children }) {
+              return (
+                <td className="px-3.5 py-2 text-slate-700 dark:text-slate-300 border-b border-slate-100 dark:border-slate-800">
+                  {children}
+                </td>
+              );
+            },
+            ul({ children }) {
+              return <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>;
+            },
+            ol({ children }) {
+              return <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>;
+            },
+            li({ children }) {
+              return <li className="leading-relaxed">{children}</li>;
+            },
+            blockquote({ children }) {
+              return (
+                <blockquote className="border-l-4 border-indigo-500 pl-3 my-2 italic text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 py-1 rounded-r">
+                  {children}
+                </blockquote>
+              );
+            }
+          }}
+        >
+          {processedText}
+        </ReactMarkdown>
+      )}
+    </div>
   );
 }
