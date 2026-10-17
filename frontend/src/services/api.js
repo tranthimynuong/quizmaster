@@ -286,6 +286,19 @@ export async function deleteQuizChapter(identifier, chapterName) {
   return res.json();
 }
 
+export async function createQuizQuestion(identifier, questionData) {
+  const res = await fetch(`${API_BASE}/quizzes/${encodeURIComponent(identifier)}/questions`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(questionData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Lỗi khi thêm câu hỏi mới vào bộ đề.');
+  }
+  return res.json();
+}
+
 export async function updateQuizQuestion(identifier, questionId, questionData) {
   const res = await fetch(`${API_BASE}/quizzes/${encodeURIComponent(identifier)}/questions/${questionId}`, {
     method: 'PUT',

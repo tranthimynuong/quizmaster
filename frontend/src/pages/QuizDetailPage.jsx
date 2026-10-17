@@ -49,6 +49,7 @@ import {
   updateQuiz,
   renameQuizChapter,
   deleteQuizChapter,
+  createQuizQuestion,
   updateQuizQuestion,
   deleteQuizQuestion,
   fetchSubjects,
@@ -413,6 +414,25 @@ export default function QuizDetailPage() {
     }
   };
 
+  const openAddQuestionModal = (targetChapter = '') => {
+    setEditingQuestion(null);
+    setQContent('');
+    setQChapter(targetChapter || (quiz?.chapters?.[0] || 'Bài 1'));
+    setQOptionA('');
+    setQOptionB('');
+    setQOptionC('');
+    setQOptionD('');
+    setQCorrect('A');
+    setQExpA('');
+    setQExpB('');
+    setQExpC('');
+    setQExpD('');
+    setQImageUrl('');
+    setAiSolveNotice(null);
+    setEditQuestionError(null);
+    setIsEditQuestionOpen(true);
+  };
+
   const openEditQuestionModal = (q) => {
     setEditingQuestion(q);
     setQContent(q.content || '');
@@ -427,6 +447,7 @@ export default function QuizDetailPage() {
     setQExpC(q.explanation_c || '');
     setQExpD(q.explanation_d || '');
     setQImageUrl(q.image_url || '');
+    setAiSolveNotice(null);
     setEditQuestionError(null);
     setIsEditQuestionOpen(true);
   };
@@ -441,20 +462,37 @@ export default function QuizDetailPage() {
     setIsUpdatingQuestion(true);
     setEditQuestionError(null);
     try {
-      await updateQuizQuestion(quiz.share_code, editingQuestion.id, {
-        chapter: qChapter.trim() || 'Bài 1',
-        content: qContent.trim(),
-        option_a: qOptionA.trim(),
-        option_b: qOptionB.trim(),
-        option_c: qOptionC.trim(),
-        option_d: qOptionD.trim(),
-        correct_answer: qCorrect,
-        explanation_a: qExpA.trim(),
-        explanation_b: qExpB.trim(),
-        explanation_c: qExpC.trim(),
-        explanation_d: qExpD.trim(),
-        image_url: qImageUrl.trim() || null
-      });
+      if (editingQuestion && editingQuestion.id) {
+        await updateQuizQuestion(quiz.share_code, editingQuestion.id, {
+          chapter: qChapter.trim() || 'Bài 1',
+          content: qContent.trim(),
+          option_a: qOptionA.trim(),
+          option_b: qOptionB.trim(),
+          option_c: qOptionC.trim(),
+          option_d: qOptionD.trim(),
+          correct_answer: qCorrect,
+          explanation_a: qExpA.trim() || undefined,
+          explanation_b: qExpB.trim() || undefined,
+          explanation_c: qExpC.trim() || undefined,
+          explanation_d: qExpD.trim() || undefined,
+          image_url: qImageUrl.trim() || null
+        });
+      } else {
+        await createQuizQuestion(quiz.share_code, {
+          chapter: qChapter.trim() || 'Bài 1',
+          content: qContent.trim(),
+          option_a: qOptionA.trim(),
+          option_b: qOptionB.trim(),
+          option_c: qOptionC.trim(),
+          option_d: qOptionD.trim(),
+          correct_answer: qCorrect,
+          explanation_a: qExpA.trim() || 'Giải thích cho phương án A',
+          explanation_b: qExpB.trim() || 'Giải thích cho phương án B',
+          explanation_c: qExpC.trim() || 'Giải thích cho phương án C',
+          explanation_d: qExpD.trim() || 'Giải thích cho phương án D',
+          image_url: qImageUrl.trim() || null
+        });
+      }
       await loadQuiz();
       setIsEditQuestionOpen(false);
     } catch (err) {
@@ -937,6 +975,19 @@ export default function QuizDetailPage() {
                         </select>
                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       </div>
+
+                      {/* Add Question Button */}
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => openAddQuestionModal(chapterFilter !== 'all' ? chapterFilter : '')}
+                          className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 shadow-xs transition-all"
+                          title="Thêm câu hỏi mới vào bộ đề"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Thêm câu</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1045,6 +1096,18 @@ export default function QuizDetailPage() {
 
                         {/* Action Buttons */}
                         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center flex-wrap">
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => openAddQuestionModal(chName)}
+                              className="px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200/80 dark:border-indigo-800 font-bold text-xs flex items-center gap-1 transition-all shadow-xs"
+                              title={`Thêm câu hỏi mới vào ${chTag}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Thêm câu</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => {
                               setExportTargetChapter(chName);
@@ -1139,6 +1202,19 @@ export default function QuizDetailPage() {
                               </div>
                             );
                           })}
+
+                          {canEdit && (
+                            <div className="pt-2 flex justify-center">
+                              <button
+                                type="button"
+                                onClick={() => openAddQuestionModal(chName)}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
+                              >
+                                <Plus className="w-4 h-4" />
+                                <span>Thêm câu hỏi vào {chTag}</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1388,8 +1464,8 @@ export default function QuizDetailPage() {
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl my-8 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-500" />
-                Sửa Câu Hỏi & Đáp Án
+                {editingQuestion ? <Edit3 className="w-5 h-5 text-indigo-500" /> : <Plus className="w-5 h-5 text-indigo-500" />}
+                <span>{editingQuestion ? 'Sửa Câu Hỏi & Đáp Án' : `Thêm Câu Hỏi Mới vào ${qChapter || 'Bài'}`}</span>
               </h3>
               <button
                 onClick={() => setIsEditQuestionOpen(false)}

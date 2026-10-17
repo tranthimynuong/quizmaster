@@ -15,6 +15,7 @@ from ..schemas import (
     QuizCreate,
     QuizUpdate,
     ChapterRenameRequest,
+    QuestionCreate,
     QuestionUpdate,
     QuestionOut,
     AttemptSubmitRequest,
@@ -795,6 +796,52 @@ def delete_quiz_chapter(
 
     db.commit()
     return {"success": True, "message": f"Đã xóa thành công bài '{ch_name}' gồm {deleted_count} câu hỏi.", "deleted_count": deleted_count}
+
+
+@router.post("/{identifier}/questions", response_model=QuestionOut)
+def add_quiz_question(
+    identifier: str,
+    data: QuestionCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Thêm một câu hỏi mới vào một bài / chương trong bộ đề."""
+    quiz = db.query(Quiz).filter(Quiz.share_code == identifier).first()
+    if not quiz and identifier.isdigit():
+        quiz = db.query(Quiz).filter(Quiz.id == int(identifier)).first()
+
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bộ đề.")
+
+    if quiz.created_by_id and current_user:
+        if quiz.created_by_id != current_user.id and current_user.role != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền thêm câu hỏi vào bộ đề này.")
+
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="Nội dung câu hỏi không được để trống.")
+    if not data.option_a.strip() or not data.option_b.strip() or not data.option_c.strip() or not data.option_d.strip():
+        raise HTTPException(status_code=400, detail="Vui lòng điền đầy đủ 4 phương án A, B, C, D.")
+
+    new_question = Question(
+        quiz_id=quiz.id,
+        chapter=data.chapter.strip() if (data.chapter and data.chapter.strip()) else "Bài 1",
+        content=data.content.strip(),
+        option_a=data.option_a.strip(),
+        option_b=data.option_b.strip(),
+        option_c=data.option_c.strip(),
+        option_d=data.option_d.strip(),
+        correct_answer=(data.correct_answer or "A").strip().upper(),
+        explanation_a=data.explanation_a.strip() if data.explanation_a else "Giải thích cho phương án A",
+        explanation_b=data.explanation_b.strip() if data.explanation_b else "Giải thích cho phương án B",
+        explanation_c=data.explanation_c.strip() if data.explanation_c else "Giải thích cho phương án C",
+        explanation_d=data.explanation_d.strip() if data.explanation_d else "Giải thích cho phương án D",
+        image_url=data.image_url.strip() if data.image_url else None
+    )
+
+    db.add(new_question)
+    db.commit()
+    db.refresh(new_question)
+    return QuestionOut.model_validate(new_question)
 
 
 @router.put("/{identifier}/questions/{question_id}", response_model=QuestionOut)
