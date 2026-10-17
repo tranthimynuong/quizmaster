@@ -436,11 +436,12 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                             elif s["y_mid"] > y_pos + 1.0:
                                 txt = f"_{{{clean_t}}}"
 
-                        if is_under_highlight or is_colored:
+                        has_word_chars = bool(re.search(r'[\wÀ-ỹ]', txt))
+                        if (is_under_highlight or is_colored) and has_word_chars:
                             txt = f"{txt} [COLOR_MARK]"
-                        elif is_bold:
+                        elif is_bold and has_word_chars:
                             txt = f"{txt} [BOLD_MARK]"
-                        elif is_italic:
+                        elif is_italic and has_word_chars:
                             txt = f"{txt} [ITALIC_MARK]"
 
                         out_parts.append(txt)
@@ -470,7 +471,7 @@ def find_option_markers(block: str):
     def search_letter(letter: str, start_pos: int = 0):
         low = letter.lower()
         up = letter.upper()
-        pat = rf'(?:^|\s|\n)(?:\[(?:COLOR|BOLD|ITALIC)_MARK\]\s*)?(?:\(?\[?{up}\]?(?:\s*\[(?:COLOR|BOLD|ITALIC)_MARK\])?\s*[\.\)\:\-]|(?:\({up}\)|\[{up}\]))\s*(?:\[(?:COLOR|BOLD|ITALIC)_MARK\]\s*)?'
+        pat = rf'(?:^|\n|\s+)(?:\(?\[?{up}\]?(?:\s*\[(?:COLOR|BOLD|ITALIC)_MARK\])?\s*[\.\)\:\-]|(?:\({up}\)|\[{up}\]))(?:\s*\[(?:COLOR|BOLD|ITALIC)_MARK\])?\s*'
         m = re.search(pat, block[start_pos:])
         if m:
             abs_start = start_pos + m.start()
@@ -558,26 +559,34 @@ def parse_single_block(block: str, default_chapter: str = "Bài 1", global_answe
     if not content_clean:
         content_clean = clean_content_text(content)
 
-    ans_match = re.search(r'(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA|Đ\.A|ĐA đúng|Chọn|Phương án đúng)[:\s]+(?:[✓✔☑\s]*)([A-D])\b', block, flags=re.IGNORECASE)
-    ans_search_start = re.search(r'(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA|Đ\.A|ĐA đúng|Chọn|Phương án đúng)[:\s]+(?:[✓✔☑\s]*)[A-D]\b', block, flags=re.IGNORECASE)
-    exp_match = re.search(r'(?:\[\]\s*)?(?:Giải thích|GIẢI THÍCH|Lý do|Explanation|HDG|Hướng dẫn giải)[:\s]+(.*)', block, flags=re.IGNORECASE | re.DOTALL)
+    last_opt = mD if mD else (mC if mC else mB)
+    tail = block[last_opt["end"]:]
+
+    ans_match = re.search(r'(?:^|\n|\s+)(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA|Đ\.A|ĐA đúng|Phương án đúng)[:\s]+(?:[✓✔☑\s]*)([A-D])\b', tail, flags=re.IGNORECASE)
+    exp_match = re.search(r'(?:^|\n|\s+)(?:\[\]\s*)?(?:Giải thích|GIẢI THÍCH|Hướng dẫn giải|HDG|Lý do\s*[:\-])[:\s]+(.*)', tail, flags=re.IGNORECASE | re.DOTALL)
     general_exp = clean_inline_text(exp_match.group(1)) if exp_match else ""
 
-    end_boundary = ans_search_start.start() if ans_search_start else (exp_match.start() if exp_match else len(block))
+    end_boundary = len(tail)
+    if ans_match and exp_match:
+        end_boundary = min(ans_match.start(), exp_match.start())
+    elif ans_match:
+        end_boundary = ans_match.start()
+    elif exp_match:
+        end_boundary = exp_match.start()
 
     if mA and mB and mC and mD:
         opt_a_raw = block[mA["end"]:mB["start"]]
         opt_b_raw = block[mB["end"]:mC["start"]]
         opt_c_raw = block[mC["end"]:mD["start"]]
-        opt_d_raw = block[mD["end"]:end_boundary]
+        opt_d_raw = tail[:end_boundary]
     elif mA and mB and mC and not mD:
         opt_a_raw = block[mA["end"]:mB["start"]]
         opt_b_raw = block[mB["end"]:mC["start"]]
-        opt_c_raw = block[mC["end"]:end_boundary]
+        opt_c_raw = tail[:end_boundary]
         opt_d_raw = "Tất cả các đáp án trên đều sai"
     else:
         opt_a_raw = block[mA["end"]:mB["start"]]
-        opt_b_raw = block[mB["end"]:end_boundary]
+        opt_b_raw = tail[:end_boundary]
         opt_c_raw = "Không có phương án phù hợp"
         opt_d_raw = "Tất cả các đáp án trên đều sai"
 
@@ -754,7 +763,7 @@ def parse_document_to_questions(
                 pass
 
     # Split document into segments or questions (requires punctuation after number to avoid matching math values)
-    split_pattern = r'(?:\n|^)\s*(?=(?:(?:Câu|CÂU|câu|Question|QUESTION|Bài|BÀI|Task|Ex|Q\.?|CÂU\s*HỎI|Câu\s*hỏi|Bài\s*tập|BT)\s*\d+[\.\:\-\)\/]|(?:BÀI|CHƯƠNG|PHẦN|CHỦ ĐỀ|TIẾT|HỌC\s*PHẦN|MODULE)\s*[0-9IVXLCDMivxlcdm]+|\b\d{1,4}\s*[\.\)\:\-\/]\s+(?=[A-ZÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ])))'
+    split_pattern = r'(?:\n|^)\s*(?=(?:(?:Câu|CÂU|câu|Question|QUESTION|Bài|BÀI|Task|Ex|Q\.?|CÂU\s*HỎI|Câu\s*hỏi|Bài\s*tập|BT)\s*\d+\s*(?:\[(?:COLOR|BOLD|ITALIC)_MARK\]\s*)*[\.\:\-\)\/]|(?:BÀI|CHƯƠNG|PHẦN|CHỦ ĐỀ|TIẾT|HỌC\s*PHẦN|MODULE)\s*[0-9IVXLCDMivxlcdm]+|\b\d{1,4}\s*[\.\)\:\-\/]\s+(?=[A-ZÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ])))'
     blocks = re.split(split_pattern, normalized, flags=re.IGNORECASE)
 
     current_chapter = default_chapter

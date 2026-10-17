@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import logging
 from typing import List, Dict, Optional
@@ -262,9 +263,10 @@ def _extract_paragraph_text(p_node, saved_images_map: Optional[Dict[str, str]] =
                             is_colored = True
 
             marker = ""
-            if is_colored or is_highlighted or is_underlined:
+            has_word = bool(re.search(r'[\wÀ-ỹ]', raw_text))
+            if (is_colored or is_highlighted or is_underlined) and has_word:
                 marker = " [COLOR_MARK]"
-            elif is_bold:
+            elif is_bold and has_word:
                 marker = " [BOLD_MARK]"
 
             parts.append(f"{raw_text}{marker}")
