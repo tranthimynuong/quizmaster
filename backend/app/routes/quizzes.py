@@ -44,16 +44,56 @@ def generate_share_code(title: str, db: Session) -> str:
     return f"q-{secrets.token_hex(4)}"
 
 
+def check_fill_in_blank_answer(user_choice: Optional[str], correct_answer: Optional[str]) -> bool:
+    """Smart fuzzy matching for fill-in-the-blank questions (code, math, multiple synonyms)."""
+    if not user_choice or not correct_answer:
+        return False
+    u = unicodedata.normalize("NFC", str(user_choice).strip())
+    c = unicodedata.normalize("NFC", str(correct_answer).strip())
+    
+    # 1. Exact or case-insensitive match
+    if u.lower() == c.lower():
+        return True
+        
+    # 2. Check if multiple acceptable choices are provided (split by | ; or newlines)
+    delimiters = r'[|;\n]'
+    acceptable = [part.strip().lower() for part in re.split(delimiters, c) if part.strip()]
+    if u.lower() in acceptable:
+        return True
+        
+    # 3. Programming & math normalization: collapse internal spaces, strip outer brackets/quotes
+    def clean_expr(s: str) -> str:
+        s = s.lower().strip()
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1].strip()
+        if s.startswith('[') and s.endswith(']'):
+            s = s[1:-1].strip()
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1].strip()
+        s = s.replace('"', "'")
+        s = re.sub(r'\s+', '', s)
+        return s
+
+    if clean_expr(u) == clean_expr(c):
+        return True
+    for acc in acceptable:
+        if clean_expr(u) == clean_expr(acc):
+            return True
+            
+    return False
+
+
 @router.post("/ai-solve-question")
 def ai_solve_question_endpoint(data: AiSolveRequest):
     """Sử dụng AI & bộ suy luận để giải đáp án chính xác và tạo 4 lời giải thích chuyên sâu."""
     return solve_and_explain_question(
         content=data.content,
-        option_a=data.option_a,
-        option_b=data.option_b,
-        option_c=data.option_c,
-        option_d=data.option_d,
-        current_answer=data.current_answer
+        option_a=data.option_a or "",
+        option_b=data.option_b or "",
+        option_c=data.option_c or "",
+        option_d=data.option_d or "",
+        current_answer=data.current_answer,
+        question_type=getattr(data, "question_type", "multiple_choice") or "multiple_choice"
     )
 
 
@@ -363,19 +403,23 @@ def submit_quiz_attempt(
     details = []
 
     for q in eval_questions:
-        user_choice = submission.user_answers.get(str(q.id)) or submission.user_answers.get(q.id)
-        if user_choice:
-            user_choice = str(user_choice).upper().strip()
-        else:
-            user_choice = None
+        raw_choice = submission.user_answers.get(str(q.id)) or submission.user_answers.get(q.id)
+        q_type = getattr(q, "question_type", "multiple_choice") or "multiple_choice"
 
-        is_correct = (user_choice == q.correct_answer)
+        if q_type == "fill_in_blank":
+            user_choice = str(raw_choice).strip() if raw_choice is not None else None
+            is_correct = check_fill_in_blank_answer(user_choice, q.correct_answer)
+        else:
+            user_choice = str(raw_choice).upper().strip() if raw_choice is not None else None
+            is_correct = bool(user_choice and q.correct_answer and user_choice == q.correct_answer.upper().strip())
+
         if is_correct:
             correct_count += 1
 
         details.append({
             "question_id": q.id,
             "chapter": q.chapter,
+            "question_type": q_type,
             "content": q.content,
             "user_choice": user_choice,
             "correct_answer": q.correct_answer,
@@ -383,7 +427,8 @@ def submit_quiz_attempt(
             "explanation_a": q.explanation_a,
             "explanation_b": q.explanation_b,
             "explanation_c": q.explanation_c,
-            "explanation_d": q.explanation_d
+            "explanation_d": q.explanation_d,
+            "image_url": q.image_url
         })
 
     raw_score = (correct_count / total_q) * 10.0 if total_q > 0 else 0
@@ -530,16 +575,24 @@ async def append_pdf_to_quiz(
                 else:
                     q_chapter = file_default_chapter or detected_ch or "Bài 1"
 
+                q_type = q.get("question_type") or "multiple_choice"
+                raw_ans = (q.get("correct_answer") or "").strip()
+                if q_type == "multiple_choice":
+                    c_ans = raw_ans.upper() if raw_ans in ["A", "B", "C", "D"] else "A"
+                else:
+                    c_ans = raw_ans or "đáp án"
+
                 new_questions.append(
                     Question(
                         quiz_id=quiz.id,
                         chapter=q_chapter.strip(),
+                        question_type=q_type,
                         content=q.get("content", "").strip(),
                         option_a=q.get("option_a", "").strip(),
                         option_b=q.get("option_b", "").strip(),
                         option_c=q.get("option_c", "").strip(),
                         option_d=q.get("option_d", "").strip(),
-                        correct_answer=q.get("correct_answer", "A").strip().upper(),
+                        correct_answer=c_ans,
                         explanation_a=q.get("explanation_a", ""),
                         explanation_b=q.get("explanation_b", ""),
                         explanation_c=q.get("explanation_c", ""),
@@ -819,22 +872,32 @@ def add_quiz_question(
 
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Nội dung câu hỏi không được để trống.")
-    if not data.option_a.strip() or not data.option_b.strip() or not data.option_c.strip() or not data.option_d.strip():
-        raise HTTPException(status_code=400, detail="Vui lòng điền đầy đủ 4 phương án A, B, C, D.")
+    
+    q_type = data.question_type or "multiple_choice"
+    if q_type == "multiple_choice":
+        if not (data.option_a or "").strip() or not (data.option_b or "").strip():
+            raise HTTPException(status_code=400, detail="Vui lòng điền các phương án lựa chọn A, B.")
+        correct_ans = (data.correct_answer or "A").strip().upper()
+    else:
+        # Fill-in-the-blank requires an answer phrase or keyword
+        if not (data.correct_answer or "").strip():
+            raise HTTPException(status_code=400, detail="Vui lòng nhập đáp án chính xác cần điền vào ô trống.")
+        correct_ans = data.correct_answer.strip()
 
     new_question = Question(
         quiz_id=quiz.id,
         chapter=data.chapter.strip() if (data.chapter and data.chapter.strip()) else "Bài 1",
+        question_type=q_type,
         content=data.content.strip(),
-        option_a=data.option_a.strip(),
-        option_b=data.option_b.strip(),
-        option_c=data.option_c.strip(),
-        option_d=data.option_d.strip(),
-        correct_answer=(data.correct_answer or "A").strip().upper(),
-        explanation_a=data.explanation_a.strip() if data.explanation_a else "Giải thích cho phương án A",
-        explanation_b=data.explanation_b.strip() if data.explanation_b else "Giải thích cho phương án B",
-        explanation_c=data.explanation_c.strip() if data.explanation_c else "Giải thích cho phương án C",
-        explanation_d=data.explanation_d.strip() if data.explanation_d else "Giải thích cho phương án D",
+        option_a=(data.option_a or "").strip(),
+        option_b=(data.option_b or "").strip(),
+        option_c=(data.option_c or "").strip(),
+        option_d=(data.option_d or "").strip(),
+        correct_answer=correct_ans,
+        explanation_a=data.explanation_a.strip() if data.explanation_a else ("Đáp án chính xác cần điền." if q_type == "fill_in_blank" else "Giải thích cho phương án A"),
+        explanation_b=data.explanation_b.strip() if data.explanation_b else "",
+        explanation_c=data.explanation_c.strip() if data.explanation_c else "",
+        explanation_d=data.explanation_d.strip() if data.explanation_d else "",
         image_url=data.image_url.strip() if data.image_url else None
     )
 
@@ -852,7 +915,7 @@ def update_quiz_question(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Chỉnh sửa nội dung, 4 đáp án A-B-C-D, đáp án đúng và lời giải thích của một câu hỏi."""
+    """Chỉnh sửa nội dung, dạng câu hỏi, đáp án đúng và lời giải thích của một câu hỏi."""
     quiz = db.query(Quiz).filter(Quiz.share_code == identifier).first()
     if not quiz and identifier.isdigit():
         quiz = db.query(Quiz).filter(Quiz.id == int(identifier)).first()
@@ -870,6 +933,8 @@ def update_quiz_question(
 
     if data.chapter is not None:
         question.chapter = data.chapter.strip() if data.chapter.strip() else "Bài 1"
+    if data.question_type is not None:
+        question.question_type = data.question_type
     if data.content is not None and data.content.strip():
         question.content = data.content.strip()
     if data.option_a is not None:
@@ -881,7 +946,10 @@ def update_quiz_question(
     if data.option_d is not None:
         question.option_d = data.option_d.strip()
     if data.correct_answer is not None and data.correct_answer.strip():
-        question.correct_answer = data.correct_answer.strip().upper()
+        if question.question_type == "multiple_choice":
+            question.correct_answer = data.correct_answer.strip().upper()
+        else:
+            question.correct_answer = data.correct_answer.strip()
     if data.explanation_a is not None:
         question.explanation_a = data.explanation_a.strip()
     if data.explanation_b is not None:

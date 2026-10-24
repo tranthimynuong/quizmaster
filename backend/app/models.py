@@ -54,12 +54,13 @@ class Question(Base):
     id = Column(Integer, primary_key=True, index=True)
     quiz_id = Column(Integer, ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False)
     chapter = Column(String(150), nullable=True, default="Bài 1") # Phân loại theo Bài / Chương / Chủ đề
+    question_type = Column(String(50), nullable=False, default="multiple_choice") # 'multiple_choice' or 'fill_in_blank'
     content = Column(Text, nullable=False)
-    option_a = Column(Text, nullable=False)
-    option_b = Column(Text, nullable=False)
-    option_c = Column(Text, nullable=False)
-    option_d = Column(Text, nullable=False)
-    correct_answer = Column(String(1), nullable=False) # 'A', 'B', 'C', 'D'
+    option_a = Column(Text, nullable=True, default="")
+    option_b = Column(Text, nullable=True, default="")
+    option_c = Column(Text, nullable=True, default="")
+    option_d = Column(Text, nullable=True, default="")
+    correct_answer = Column(Text, nullable=False) # 'A', 'B', 'C', 'D' or phrase/keyword for fill-in-the-blank
     explanation_a = Column(Text, nullable=True)
     explanation_b = Column(Text, nullable=True)
     explanation_c = Column(Text, nullable=True)

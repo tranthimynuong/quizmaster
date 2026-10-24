@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+import hashlib
 import logging
 from typing import List, Dict, Optional
 
@@ -140,13 +141,15 @@ def extract_rich_text_from_docx(docx_bytes: bytes) -> str:
                 if media_path in namelist:
                     try:
                         img_bytes = z.read(media_path)
-                        # Filter out tiny icon images (< 800 bytes)
-                        if len(img_bytes) > 800:
+                        # Filter out tiny icon images (< 1500 bytes)
+                        if len(img_bytes) > 1500:
                             ext = os.path.splitext(media_path)[1].lower() or ".png"
-                            unique_name = f"doc_{uuid.uuid4().hex[:12]}{ext}"
+                            img_hash = hashlib.md5(img_bytes).hexdigest()[:16]
+                            unique_name = f"doc_{img_hash}{ext}"
                             file_path = os.path.join(UPLOAD_DIR, unique_name)
-                            with open(file_path, "wb") as f_out:
-                                f_out.write(img_bytes)
+                            if not os.path.exists(file_path):
+                                with open(file_path, "wb") as f_out:
+                                    f_out.write(img_bytes)
                             saved_images_map[r_id] = f"/uploads/questions/{unique_name}"
                     except Exception as img_err:
                         logger.warning(f"Failed to extract image {media_path}: {img_err}")

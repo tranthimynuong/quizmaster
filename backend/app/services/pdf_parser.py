@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from pypdf import PdfReader
 import os
 import uuid
+import hashlib
 from ..config import settings
 from .ai_service import _heuristic_reasoning_engine, parse_exam_with_gemini, parse_exam_with_gemini_vision
 from .docx_parser import extract_rich_text_from_docx
@@ -265,9 +266,20 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         })
 
             # 4. Check for True Two-Column Question Layout
-            left_q = sum(1 for s in raw_spans if s["x0"] < mid_x - 20 and re.match(r'^(?:Câu|Bài|Question)\s*\d+[\.\:\-]', s["text"].strip(), re.I))
-            right_q = sum(1 for s in raw_spans if s["x0"] >= mid_x - 20 and re.match(r'^(?:Câu|Bài|Question)\s*\d+[\.\:\-]', s["text"].strip(), re.I))
-            is_two_col = (left_q >= 2 and right_q >= 2)
+            # Supports both prefixed questions ("Câu 1.", "Bài 15.") and pure numbers ("1.", "15.", "21)")
+            q_num_rx = re.compile(r'^(?:(?:câu|cau|bài|bai|question|q\.?)\s*)?\d{1,3}\s*[\.\:\-\)\/]', re.I)
+            left_q = sum(1 for s in raw_spans if s["x0"] < mid_x - 15 and q_num_rx.match(s["text"].strip()))
+            right_q = sum(1 for s in raw_spans if s["x0"] >= mid_x - 15 and q_num_rx.match(s["text"].strip()))
+            
+            # True 2-column condition
+            is_two_col = (left_q >= 1 and right_q >= 1)
+            if not is_two_col:
+                # Also check gutter density: lots of text on both halves with clear empty gutter in the middle
+                left_dense = sum(1 for s in raw_spans if s["x0"] < mid_x - 35)
+                right_dense = sum(1 for s in raw_spans if s["x0"] >= mid_x + 35)
+                cross_gutter = sum(1 for s in raw_spans if s["x0"] < mid_x - 10 and s["x1"] > mid_x + 10)
+                if left_dense >= 15 and right_dense >= 15 and cross_gutter < 4:
+                    is_two_col = True
 
             # 5. Extract Drawings: Fraction Bars and Radicals
             frac_lines = []
@@ -325,7 +337,7 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                         "x1": fl.x1
                     })
 
-            # 6. Extract Images and Place Geometrically
+            # 6. Extract Images and Place Geometrically (Ignoring header logos & footer watermarks)
             image_spans = []
             try:
                 for img_info in page.get_images():
@@ -334,17 +346,27 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
                     if not rects:
                         continue
                     img_rect = rects[0]
+
+                    # Filter out header logos (top 15% of page) and footer images (bottom 8% of page)
+                    if (img_rect.y1 <= 140 or (img_rect.y1 / max(1.0, page_h)) < 0.15):
+                        continue
+                    if (img_rect.y0 >= page_h - 70 or (img_rect.y0 / max(1.0, page_h)) > 0.92):
+                        continue
+
                     base_img = doc.extract_image(xref)
                     img_w = base_img.get("width", 0)
                     img_h = base_img.get("height", 0)
-                    if img_w >= 50 and img_h >= 50:
+                    if img_w >= 100 and img_h >= 80:
                         img_bytes = base_img.get("image")
                         img_ext = base_img.get("ext", "png")
                         if img_bytes:
-                            unique_name = f"pdf_{uuid.uuid4().hex[:12]}.{img_ext}"
+                            # Deduplicate by content hash so repeated logos/icons across pages don't spam disk
+                            img_hash = hashlib.md5(img_bytes).hexdigest()[:16]
+                            unique_name = f"pdf_{img_hash}.{img_ext}"
                             file_path = os.path.join(UPLOAD_DIR, unique_name)
-                            with open(file_path, "wb") as f_out:
-                                f_out.write(img_bytes)
+                            if not os.path.exists(file_path):
+                                with open(file_path, "wb") as f_out:
+                                    f_out.write(img_bytes)
                             img_url = f"/uploads/questions/{unique_name}"
                             image_spans.append({
                                 "bbox": [img_rect.x0, img_rect.y0, img_rect.x1, img_rect.y1],
@@ -362,11 +384,27 @@ def extract_rich_text_from_pdf(pdf_bytes: bytes, max_pages: int = 500) -> str:
 
             active_spans = [s for i, s in enumerate(raw_spans) if i not in consumed_spans] + fraction_spans + image_spans
 
-            # 7. Divide into Columns
+            # 7. Divide into Columns (with top Header preservation)
             columns = []
             if is_two_col:
-                columns.append([s for s in active_spans if s["x0"] < mid_x])
-                columns.append([s for s in active_spans if s["x0"] >= mid_x])
+                # Find where questions begin to keep the top exam header full-width
+                first_q_y = None
+                for s in raw_spans:
+                    if q_num_rx.match(s["text"].strip()):
+                        first_q_y = s["y_mid"] if first_q_y is None else min(first_q_y, s["y_mid"])
+                
+                header_boundary = max(0, (first_q_y - 12)) if first_q_y else (page_h * 0.12)
+                
+                header_col = [s for s in active_spans if s["y_mid"] < header_boundary]
+                col1 = [s for s in active_spans if s["y_mid"] >= header_boundary and s["x0"] < mid_x]
+                col2 = [s for s in active_spans if s["y_mid"] >= header_boundary and s["x0"] >= mid_x]
+                
+                if header_col:
+                    columns.append(header_col)
+                if col1:
+                    columns.append(col1)
+                if col2:
+                    columns.append(col2)
             else:
                 columns.append(active_spans)
 
@@ -561,6 +599,8 @@ def parse_single_block(block: str, default_chapter: str = "Bài 1", global_answe
 
     last_opt = mD if mD else (mC if mC else mB)
     tail = block[last_opt["end"]:]
+    # Strip exam footer lines (e.g. "GV. Phan Thị...", "Trang 1/5", "Nhập môn lập trình...", "MSSV:")
+    tail = re.sub(r'(?:^|\n)\s*(?:Trang\s*\d+.*|Page\s*\d+.*|GV[\.\:]\s*.*|Môn\s*học[\.\:]\s*.*|Nhập\s*môn\s*lập\s*trình\s*.*|ĐỀ\s*THI\s*.*|MSSV\s*[:\-].*|\(IPPA\d+\).*)\s*$', '', tail, flags=re.IGNORECASE).strip()
 
     ans_match = re.search(r'(?:^|\n|\s+)(?:[✓✔☑\s]*)?(?:Đáp án đúng|Đáp án|ĐÁP ÁN|Key|Answer|Đ/a|ĐA|Đ\.A|ĐA đúng|Phương án đúng)[:\s]+(?:[✓✔☑\s]*)([A-D])\b', tail, flags=re.IGNORECASE)
     exp_match = re.search(r'(?:^|\n|\s+)(?:\[\]\s*)?(?:Giải thích|GIẢI THÍCH|Hướng dẫn giải|HDG|Lý do\s*[:\-])[:\s]+(.*)', tail, flags=re.IGNORECASE | re.DOTALL)
@@ -674,6 +714,7 @@ def parse_single_block(block: str, default_chapter: str = "Bài 1", global_answe
 
         return [{
             "chapter": sanitize_str(current_chapter),
+            "question_type": "multiple_choice",
             "content": sanitize_str(content_clean),
             "option_a": sanitize_str(opt_a),
             "option_b": sanitize_str(opt_b),

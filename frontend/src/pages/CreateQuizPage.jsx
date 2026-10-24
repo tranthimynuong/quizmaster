@@ -390,7 +390,7 @@ export default function CreateQuizPage() {
   const handleAddPreviewQuestion = (targetChapter) => {
     const ch = (typeof targetChapter === 'string' && targetChapter.trim())
       ? targetChapter.trim()
-      : (chapterFilterInPreview !== 'all' ? chapterFilterInPreview : (defaultChapter || 'Bài 1'));
+      : (previewChapterFilter !== 'all' ? previewChapterFilter : (defaultChapter || 'Bài 1'));
     const newIdx = previewQuestions.length;
     setPreviewQuestions(prev => [
       ...prev,
@@ -678,10 +678,10 @@ export default function CreateQuizPage() {
                       type="button"
                       onClick={() => handleAddPreviewQuestion()}
                       className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 shadow-xs transition-all"
-                      title={chapterFilterInPreview !== 'all' ? `Thêm câu mới vào ${chapterFilterInPreview}` : 'Thêm câu hỏi mới'}
+                      title={previewChapterFilter !== 'all' ? `Thêm câu mới vào ${previewChapterFilter}` : 'Thêm câu hỏi mới'}
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>{chapterFilterInPreview !== 'all' ? `Thêm vào ${chapterFilterInPreview}` : 'Thêm câu'}</span>
+                      <span>{previewChapterFilter !== 'all' ? `Thêm vào ${previewChapterFilter}` : 'Thêm câu'}</span>
                     </button>
                   </div>
 

@@ -22,6 +22,7 @@ import {
   Play,
   LogOut,
   X,
+  Check,
   ShieldCheck,
   ShieldAlert,
   Lock,
@@ -1009,39 +1010,89 @@ export default function ExamModePage() {
               <FormattedContent text={currentQ.content} imageUrl={currentQ.image_url} />
             </h3>
 
-            <div className="space-y-3">
-              {[
-                { key: 'A', text: currentQ.option_a },
-                { key: 'B', text: currentQ.option_b },
-                { key: 'C', text: currentQ.option_c },
-                { key: 'D', text: currentQ.option_d },
-              ].map((opt) => {
-                const isSelected = userAnswers[currentQ.id] === opt.key;
-                return (
-                  <button
-                    key={opt.key}
-                    onClick={() => handleSelectOption(opt.key)}
-                    className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border-2 transition-all flex items-start gap-3 cursor-pointer ${
-                      isSelected
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-600 text-indigo-950 dark:text-indigo-100 ring-2 ring-indigo-600/20 font-bold'
-                        : 'bg-slate-50/50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:bg-slate-100/70 hover:border-slate-300'
-                    }`}
-                  >
-                    <span className={`w-7 h-7 rounded-full border text-xs sm:text-sm font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-xs transition-colors ${
-                      isSelected
-                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                        : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                    }`}>
-                      {opt.key}
-                    </span>
-                    <span className="text-sm sm:text-base pt-0.5 flex-1 leading-relaxed">
-                      <strong className="mr-1.5">{opt.key}.</strong>
-                      <FormattedContent text={opt.text} compact />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {currentQ.question_type === 'fill_in_blank' ? (
+              <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-amber-500/5 via-indigo-500/5 to-purple-500/5 dark:from-amber-950/20 dark:via-indigo-950/20 dark:to-purple-950/20 border-2 border-amber-300/80 dark:border-amber-700/60 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    Điền câu trả lời vào ô trống bên dưới:
+                  </span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500 hidden sm:inline">
+                    Nhấn <kbd className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 font-mono text-[10px]">Enter</kbd> để sang câu tiếp theo
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={userAnswers[currentQ.id] || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUserAnswers(prev => ({
+                        ...prev,
+                        [currentQ.id]: val
+                      }));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (currentIndex < questions.length - 1) {
+                          setCurrentIndex(prev => prev + 1);
+                        }
+                      }
+                    }}
+                    placeholder="Gõ từ, cụm từ hoặc đoạn mã cần điền..."
+                    className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-base focus:border-indigo-600 dark:focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:font-sans placeholder:text-sm placeholder:text-slate-400"
+                    autoFocus
+                  />
+                </div>
+
+                {userAnswers[currentQ.id] ? (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Đã lưu câu trả lời: <strong className="font-mono text-slate-800 dark:text-slate-200">"{userAnswers[currentQ.id]}"</strong></span>
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">
+                    Chưa điền câu trả lời (hệ thống sẽ tính câu này là chưa làm).
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {[
+                  { key: 'A', text: currentQ.option_a },
+                  { key: 'B', text: currentQ.option_b },
+                  { key: 'C', text: currentQ.option_c },
+                  { key: 'D', text: currentQ.option_d },
+                ].map((opt) => {
+                  const isSelected = userAnswers[currentQ.id] === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => handleSelectOption(opt.key)}
+                      className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border-2 transition-all flex items-start gap-3 cursor-pointer ${
+                        isSelected
+                          ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-600 text-indigo-950 dark:text-indigo-100 ring-2 ring-indigo-600/20 font-bold'
+                          : 'bg-slate-50/50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 hover:bg-slate-100/70 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className={`w-7 h-7 rounded-full border text-xs sm:text-sm font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-xs transition-colors ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        {opt.key}
+                      </span>
+                      <span className="text-sm sm:text-base pt-0.5 flex-1 leading-relaxed">
+                        <strong className="mr-1.5">{opt.key}.</strong>
+                        <FormattedContent text={opt.text} compact />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
           </div>
 

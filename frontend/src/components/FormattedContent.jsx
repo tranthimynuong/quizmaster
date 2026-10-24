@@ -151,21 +151,26 @@ function CodeBlock({ code, language }) {
 
 /**
  * Intelligent text preprocessor:
- * 1. Normalizes LaTeX expressions: \(...\) -> $...$ and \[...\] -> $$...$$
- * 2. Detects raw multiline programming code blocks that lack triple-backticks and wraps them.
+ * 1. Normalizes LaTeX expressions: \(...\) -> $...$, \[...\] -> $$...$$, trims spaces inside $...$, and wraps environments
+ * 2. Detects raw multiline & single-line programming code blocks, preserves continuation and indented lines
+ * 3. Formats fill-in-the-blank tokens (e.g. (1) for · (2) in) and short code choices in compact mode
  */
-function preprocessContent(rawText) {
+function preprocessContent(rawText, compact = false) {
   if (!rawText || typeof rawText !== 'string') return '';
 
   let text = rawText;
 
   // 1. Normalize LaTeX delimiters
   // Convert escaped \( ... \) or raw \( ... \) to $ ... $
-  text = text.replace(/\\\\\((.*?)\\\\\)/gs, '$$$1$$');
-  text = text.replace(/\\\((.*?)\\\)/gs, '$$$1$$');
+  text = text.replace(/\\\\?\((.*?)\\\\?\)/gs, (_, eq) => `$${eq.trim()}$`);
   // Convert escaped \[ ... \] or raw \[ ... \] to $$ ... $$
-  text = text.replace(/\\\\\[(.*?)\\\\\]/gs, '\n\n$$$$\n$1\n$$$$\n\n');
-  text = text.replace(/\\\[(.*?)\\\]/gs, '\n\n$$$$\n$1\n$$$$\n\n');
+  text = text.replace(/\\\\?\[([\s\S]*?)\\\\?\]/gs, (_, eq) => `\n\n$$\n${eq.trim()}\n$$\n\n`);
+
+  // Trim spaces inside $ ... $ so remark-math does not treat it as literal string
+  text = text.replace(/(?<!\$)\$(?!\$)\s*([^\$\n]+?)\s*\$(?!\$)/g, (_, eq) => `$${eq.trim()}$`);
+
+  // Wrap stand-alone LaTeX environments (aligned, cases, matrix, pmatrix) if not yet wrapped
+  text = text.replace(/(?<!\$)\s*(\\begin\{(?:aligned|matrix|cases|pmatrix|bmatrix|vmatrix)\}[\s\S]*?\\end\{(?:aligned|matrix|cases|pmatrix|bmatrix|vmatrix)\})\s*(?!\$)/g, '\n\n$$\n$1\n$$\n\n');
 
   // Convert legacy [IMAGE_URL: ...] tags to Markdown image
   text = text.replace(/\[IMAGE_URL:\s*([^\]]+)\]/gi, '\n\n![]($1)\n\n');
@@ -175,52 +180,88 @@ function preprocessContent(rawText) {
     return text;
   }
 
-  // 2. Detect raw code blocks when not enclosed in ```
-  const lines = text.split('\n');
-  if (lines.length >= 2) {
-    const isCodeLine = (l) => {
-      const trimmed = l.trim();
-      if (!trimmed) return false;
-      // Keywords start
-      if (/^(def\s+|class\s+|import\s+|from\s+|for\s+|while\s+|if\s+|elif\s+|else:|return\s+|print\s*\(|console\.log|#include|public\s+|private\s+|int\s+|float\s+|double\s+|char\s+|SELECT\s+)/i.test(trimmed)) return true;
-      // Variable assignment with array/set/dict/tuple/function call
-      if (/^[a-zA-Z_]\w*\s*=\s*[\{\[\(\"\'0-9]/.test(trimmed)) return true;
-      // Methods / conditions
-      if (/\b(if\s+.+\s+else\b|\.issubset|\.append|\.extend|\.split|\.join|len\(|range\()/.test(trimmed)) return true;
-      if (/^[a-zA-Z_]\w*\s*\(.*\)\s*;?$/.test(trimmed)) return true;
-      if (/^[{}();]+$/.test(trimmed)) return true;
-      return false;
-    };
-
-    let inCode = false;
-    let codeChunk = [];
-    const newLines = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (isCodeLine(line)) {
-        inCode = true;
-        codeChunk.push(line);
-      } else {
-        if (inCode && codeChunk.length > 0) {
-          const lang = detectLanguage(codeChunk.join('\n'));
-          newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n') + '\n```');
-          codeChunk = [];
-          inCode = false;
-        }
-        newLines.push(line);
+  // 2. Compact mode (e.g. Question options or short inline snippets)
+  if (compact) {
+    const trimmed = text.trim();
+    // shortcut: handles standard "·" or "/" separator for blanks; upgrade if user introduces custom delimiters
+    if (/^\(?\d+\)?\s*[\w\:\<\>\=\+\-\*\/\%]+\s*·/.test(trimmed)) {
+      return trimmed.split(/\s*·\s*/).map(part => {
+        return part.replace(/(\(?\d+\)?\s*)(.*)/, (_, num, token) => `${num}\`${token}\``);
+      }).join(' · ');
+    }
+    // Single line code options (e.g. range(1, 6), [1, 2, 3], print('x'), x = 5)
+    if (!trimmed.includes('\n') && !trimmed.startsWith('$') && !trimmed.startsWith('`')) {
+      if (/^(def\s+|class\s+|print\s*\(|range\s*\(|len\s*\(|[a-zA-Z_]\w*\s*[\+\-\*\/\%]?=|[\[\{\(].*[\]\}\)]|continue$|break$|pass$|finally:$|except:?$|else:$|elif\s+)/.test(trimmed)) {
+        return `\`${trimmed}\``;
       }
     }
-
-    if (inCode && codeChunk.length > 0) {
-      const lang = detectLanguage(codeChunk.join('\n'));
-      newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n') + '\n```');
-    }
-
-    text = newLines.join('\n');
+    return text;
   }
 
-  return text;
+  // 3. Multi-line code block detection
+  const lines = text.split('\n');
+  if (lines.length === 1) {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('$') && !trimmed.startsWith('`')) {
+      if (/^(def\s+|class\s+|print\s*\(|range\s*\(|[a-zA-Z_]\w*\s*[\+\-\*\/\%]?=|[\[\{].*[\]\}])/.test(trimmed) && !trimmed.endsWith('?') && !trimmed.endsWith(':')) {
+        const lang = detectLanguage(trimmed);
+        return `\`\`\`${lang}\n` + trimmed + '\n```';
+      }
+    }
+    return text;
+  }
+
+  const isExplicitCodeLine = (l) => {
+    const trimmed = l.trim();
+    if (!trimmed) return null; // empty line
+    // Comments
+    if (/^(#|\/\/|\/\*)/.test(trimmed)) return true;
+    // Keywords / statements
+    if (/^(def\s+|class\s+|import\s+|from\s+|for\s+|while\s+|if\s+|elif\s+|else:|return\b|yield\b|raise\b|try:|except\b|finally:|break$|continue$|pass$|print\s*\(|console\.log|#include|public\s+|private\s+|int\s+|float\s+|double\s+|char\s+|SELECT\s+)/i.test(trimmed)) return true;
+    // Assignments: x = ..., total += ..., arr[i] = ...
+    if (/^[a-zA-Z_]\w*(\[[^\]]*\])?\s*(\+|-|\*|\/|%|\/\/|&|\||\^)?=\s*/.test(trimmed)) return true;
+    // Standalone function calls or methods
+    if (/^[a-zA-Z_]\w*\s*\(.*\)\s*;?$/.test(trimmed)) return true;
+    if (/\b(\.append|\.extend|\.split|\.join|\.issubset|len\(|range\()/.test(trimmed)) return true;
+    if (/^[{}();\[\]]+$/.test(trimmed)) return true;
+    return false;
+  };
+
+  let inCode = false;
+  let codeChunk = [];
+  const newLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const explicit = isExplicitCodeLine(line);
+    const isIndented = line.startsWith('  ') || line.startsWith('\t');
+
+    // While in code, indented lines, operators or continuation lines belong to the code block
+    const isCode = inCode 
+      ? (explicit === true || (explicit === null && i + 1 < lines.length && (isExplicitCodeLine(lines[i + 1]) || lines[i + 1].startsWith(' '))) || isIndented)
+      : (explicit === true && !trimmed.endsWith('?'));
+
+    if (isCode) {
+      inCode = true;
+      codeChunk.push(line);
+    } else {
+      if (inCode && codeChunk.length > 0) {
+        const lang = detectLanguage(codeChunk.join('\n'));
+        newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n').trimEnd() + '\n```');
+        codeChunk = [];
+        inCode = false;
+      }
+      newLines.push(line);
+    }
+  }
+
+  if (inCode && codeChunk.length > 0) {
+    const lang = detectLanguage(codeChunk.join('\n'));
+    newLines.push(`\`\`\`${lang}\n` + codeChunk.join('\n').trimEnd() + '\n```');
+  }
+
+  return newLines.join('\n');
 }
 
 /**
@@ -300,11 +341,12 @@ function ImageCard({ src, alt }) {
  * - Renders programming code blocks with PrismJS syntax highlighting, copy button, line numbers
  * - Renders question illustration images with interactive lightbox
  */
-export default function FormattedContent({ text, imageUrl = null, className = '', compact = false }) {
-  if (!text && !imageUrl) return null;
+export default function FormattedContent({ text, content, imageUrl = null, className = '', compact = false }) {
+  const actualText = text ?? content;
+  if (!actualText && !imageUrl) return null;
 
-  const rawText = text ? (typeof text === 'string' ? text : String(text)) : '';
-  const processedText = useMemo(() => preprocessContent(rawText), [rawText]);
+  const rawText = typeof actualText === 'string' ? actualText : String(actualText);
+  const processedText = useMemo(() => preprocessContent(rawText, compact), [rawText, compact]);
 
   // Check if text already has the image to prevent duplicate rendering
   const textHasImage = imageUrl && (rawText.includes(imageUrl) || processedText.includes(imageUrl));

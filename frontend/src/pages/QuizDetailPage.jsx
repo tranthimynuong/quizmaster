@@ -135,9 +135,9 @@ export default function QuizDetailPage() {
   const [isRenamingChapter, setIsRenamingChapter] = useState(false);
   const [renameChapterError, setRenameChapterError] = useState(null);
 
-  // ================= EDIT QUESTION MODAL STATE =================
   const [isEditQuestionOpen, setIsEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState(null);
+  const [qType, setQType] = useState('multiple_choice');
   const [qContent, setQContent] = useState('');
   const [qChapter, setQChapter] = useState('');
   const [qOptionA, setQOptionA] = useState('');
@@ -155,19 +155,27 @@ export default function QuizDetailPage() {
   const [aiSolveNotice, setAiSolveNotice] = useState(null);
 
   const handleAiSolveQuestion = async () => {
-    if (!qContent.trim() || !qOptionA.trim() || !qOptionB.trim() || !qOptionC.trim() || !qOptionD.trim()) {
-      alert('Vui lòng nhập đầy đủ nội dung câu hỏi và 4 đáp án A/B/C/D để AI phân tích.');
-      return;
+    if (qType === 'fill_in_blank') {
+      if (!qContent.trim()) {
+        alert('Vui lòng nhập nội dung câu hỏi điền khuyết (có chứa [blank] hoặc ...) để AI phân tích.');
+        return;
+      }
+    } else {
+      if (!qContent.trim() || !qOptionA.trim() || !qOptionB.trim() || !qOptionC.trim() || !qOptionD.trim()) {
+        alert('Vui lòng nhập đầy đủ nội dung câu hỏi và 4 đáp án A/B/C/D để AI phân tích.');
+        return;
+      }
     }
     setIsAiSolving(true);
     setAiSolveNotice(null);
     try {
       const res = await aiSolveQuestion({
         content: qContent.trim(),
-        option_a: qOptionA.trim(),
-        option_b: qOptionB.trim(),
-        option_c: qOptionC.trim(),
-        option_d: qOptionD.trim(),
+        question_type: qType,
+        option_a: qType === 'multiple_choice' ? qOptionA.trim() : undefined,
+        option_b: qType === 'multiple_choice' ? qOptionB.trim() : undefined,
+        option_c: qType === 'multiple_choice' ? qOptionC.trim() : undefined,
+        option_d: qType === 'multiple_choice' ? qOptionD.trim() : undefined,
         current_answer: qCorrect
       });
       if (res.correct_answer) {
@@ -177,7 +185,12 @@ export default function QuizDetailPage() {
       if (res.explanation_b) setQExpB(res.explanation_b);
       if (res.explanation_c) setQExpC(res.explanation_c);
       if (res.explanation_d) setQExpD(res.explanation_d);
-      setAiSolveNotice(`✨ AI đã xác định đáp án đúng (${res.correct_answer}) và tự động tạo 4 lời giải thích chi tiết!`);
+
+      if (qType === 'fill_in_blank') {
+        setAiSolveNotice(`✨ AI đã suy luận đáp án điền ô trống: "${res.correct_answer}" kèm lời giải thích chuyên sâu!`);
+      } else {
+        setAiSolveNotice(`✨ AI đã xác định đáp án đúng (${res.correct_answer}) và tự động tạo 4 lời giải thích chi tiết!`);
+      }
       setTimeout(() => setAiSolveNotice(null), 5000);
     } catch (err) {
       alert(err.message || 'Lỗi khi gọi AI giải câu hỏi');
@@ -416,6 +429,7 @@ export default function QuizDetailPage() {
 
   const openAddQuestionModal = (targetChapter = '') => {
     setEditingQuestion(null);
+    setQType('multiple_choice');
     setQContent('');
     setQChapter(targetChapter || (quiz?.chapters?.[0] || 'Bài 1'));
     setQOptionA('');
@@ -435,13 +449,19 @@ export default function QuizDetailPage() {
 
   const openEditQuestionModal = (q) => {
     setEditingQuestion(q);
+    const currentType = q.question_type || 'multiple_choice';
+    setQType(currentType);
     setQContent(q.content || '');
     setQChapter(q.chapter || 'Bài 1');
     setQOptionA(q.option_a || '');
     setQOptionB(q.option_b || '');
     setQOptionC(q.option_c || '');
     setQOptionD(q.option_d || '');
-    setQCorrect((q.correct_answer || 'A').toUpperCase());
+    if (currentType === 'fill_in_blank') {
+      setQCorrect(q.correct_answer || '');
+    } else {
+      setQCorrect((q.correct_answer || 'A').toUpperCase());
+    }
     setQExpA(q.explanation_a || '');
     setQExpB(q.explanation_b || '');
     setQExpC(q.explanation_c || '');
@@ -454,44 +474,55 @@ export default function QuizDetailPage() {
 
   const handleSaveQuestion = async (e) => {
     e.preventDefault();
-    if (!qContent.trim() || !qOptionA.trim() || !qOptionB.trim() || !qOptionC.trim() || !qOptionD.trim()) {
-      setEditQuestionError('Vui lòng nhập đầy đủ nội dung câu hỏi và 4 đáp án A, B, C, D.');
-      return;
+    if (qType === 'fill_in_blank') {
+      if (!qContent.trim() || !qCorrect.trim()) {
+        setEditQuestionError('Vui lòng nhập nội dung câu hỏi và đáp án đúng cho ô trống.');
+        return;
+      }
+    } else {
+      if (!qContent.trim() || !qOptionA.trim() || !qOptionB.trim() || !qOptionC.trim() || !qOptionD.trim()) {
+        setEditQuestionError('Vui lòng nhập đầy đủ nội dung câu hỏi và 4 đáp án A, B, C, D.');
+        return;
+      }
     }
 
     setIsUpdatingQuestion(true);
     setEditQuestionError(null);
     try {
+      const payload = qType === 'fill_in_blank' ? {
+        question_type: 'fill_in_blank',
+        chapter: qChapter.trim() || 'Bài 1',
+        content: qContent.trim(),
+        option_a: null,
+        option_b: null,
+        option_c: null,
+        option_d: null,
+        correct_answer: qCorrect.trim(),
+        explanation_a: qExpA.trim() || undefined,
+        explanation_b: undefined,
+        explanation_c: undefined,
+        explanation_d: undefined,
+        image_url: qImageUrl.trim() || null
+      } : {
+        question_type: 'multiple_choice',
+        chapter: qChapter.trim() || 'Bài 1',
+        content: qContent.trim(),
+        option_a: qOptionA.trim(),
+        option_b: qOptionB.trim(),
+        option_c: qOptionC.trim(),
+        option_d: qOptionD.trim(),
+        correct_answer: qCorrect.trim(),
+        explanation_a: qExpA.trim() || 'Giải thích cho phương án A',
+        explanation_b: qExpB.trim() || 'Giải thích cho phương án B',
+        explanation_c: qExpC.trim() || 'Giải thích cho phương án C',
+        explanation_d: qExpD.trim() || 'Giải thích cho phương án D',
+        image_url: qImageUrl.trim() || null
+      };
+
       if (editingQuestion && editingQuestion.id) {
-        await updateQuizQuestion(quiz.share_code, editingQuestion.id, {
-          chapter: qChapter.trim() || 'Bài 1',
-          content: qContent.trim(),
-          option_a: qOptionA.trim(),
-          option_b: qOptionB.trim(),
-          option_c: qOptionC.trim(),
-          option_d: qOptionD.trim(),
-          correct_answer: qCorrect,
-          explanation_a: qExpA.trim() || undefined,
-          explanation_b: qExpB.trim() || undefined,
-          explanation_c: qExpC.trim() || undefined,
-          explanation_d: qExpD.trim() || undefined,
-          image_url: qImageUrl.trim() || null
-        });
+        await updateQuizQuestion(quiz.share_code, editingQuestion.id, payload);
       } else {
-        await createQuizQuestion(quiz.share_code, {
-          chapter: qChapter.trim() || 'Bài 1',
-          content: qContent.trim(),
-          option_a: qOptionA.trim(),
-          option_b: qOptionB.trim(),
-          option_c: qOptionC.trim(),
-          option_d: qOptionD.trim(),
-          correct_answer: qCorrect,
-          explanation_a: qExpA.trim() || 'Giải thích cho phương án A',
-          explanation_b: qExpB.trim() || 'Giải thích cho phương án B',
-          explanation_c: qExpC.trim() || 'Giải thích cho phương án C',
-          explanation_d: qExpD.trim() || 'Giải thích cho phương án D',
-          image_url: qImageUrl.trim() || null
-        });
+        await createQuizQuestion(quiz.share_code, payload);
       }
       await loadQuiz();
       setIsEditQuestionOpen(false);
@@ -1160,6 +1191,17 @@ export default function QuizDetailPage() {
                                       {qIdx + 1}
                                     </span>
                                     <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white leading-relaxed flex-1">
+                                      <div className="flex items-center gap-2 mb-1.5">
+                                        {q.question_type === 'fill_in_blank' ? (
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 flex items-center gap-1">
+                                            ✏️ Điền vào ô trống
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                            Trắc nghiệm
+                                          </span>
+                                        )}
+                                      </div>
                                       <FormattedContent text={q.content} imageUrl={q.image_url} />
                                     </div>
                                   </div>
@@ -1185,20 +1227,34 @@ export default function QuizDetailPage() {
                                   )}
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:pl-9">
-                                  <div className={`p-2.5 rounded-xl border transition-all ${correct === 'A' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> <FormattedContent text={q.option_a} compact />
+                                {q.question_type === 'fill_in_blank' ? (
+                                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40 text-xs sm:ml-9 flex flex-wrap items-center gap-2">
+                                    <span className="font-bold text-amber-900 dark:text-amber-200">Đáp án chuẩn:</span>
+                                    <code className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200 font-mono font-bold text-xs shadow-xs">
+                                      {q.correct_answer}
+                                    </code>
+                                    {q.explanation_a && (
+                                      <span className="text-slate-500 dark:text-slate-400 text-[11px] italic ml-auto truncate max-w-sm">
+                                        💡 {q.explanation_a}
+                                      </span>
+                                    )}
                                   </div>
-                                  <div className={`p-2.5 rounded-xl border transition-all ${correct === 'B' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> <FormattedContent text={q.option_b} compact />
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:pl-9">
+                                    <div className={`p-2.5 rounded-xl border transition-all ${correct === 'A' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
+                                      <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">A.</span> <FormattedContent text={q.option_a} compact />
+                                    </div>
+                                    <div className={`p-2.5 rounded-xl border transition-all ${correct === 'B' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
+                                      <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">B.</span> <FormattedContent text={q.option_b} compact />
+                                    </div>
+                                    <div className={`p-2.5 rounded-xl border transition-all ${correct === 'C' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
+                                      <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> <FormattedContent text={q.option_c} compact />
+                                    </div>
+                                    <div className={`p-2.5 rounded-xl border transition-all ${correct === 'D' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
+                                      <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> <FormattedContent text={q.option_d} compact />
+                                    </div>
                                   </div>
-                                  <div className={`p-2.5 rounded-xl border transition-all ${correct === 'C' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">C.</span> <FormattedContent text={q.option_c} compact />
-                                  </div>
-                                  <div className={`p-2.5 rounded-xl border transition-all ${correct === 'D' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 font-bold text-emerald-950 dark:text-emerald-200' : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60 text-slate-700 dark:text-slate-300'}`}>
-                                    <span className="font-black text-indigo-600 dark:text-indigo-400 mr-1.5">D.</span> <FormattedContent text={q.option_d} compact />
-                                  </div>
-                                </div>
+                                )}
                               </div>
                             );
                           })}
@@ -1483,6 +1539,47 @@ export default function QuizDetailPage() {
             )}
 
             <form onSubmit={handleSaveQuestion} className="space-y-4">
+              {/* Question Type Switcher */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+                  Loại câu hỏi:
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQType('multiple_choice');
+                      if (!['A', 'B', 'C', 'D'].includes(qCorrect)) {
+                        setQCorrect('A');
+                      }
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      qType === 'multiple_choice'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>🔘 Trắc nghiệm (A/B/C/D)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQType('fill_in_blank');
+                      if (['A', 'B', 'C', 'D'].includes(qCorrect)) {
+                        setQCorrect('');
+                      }
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      qType === 'fill_in_blank'
+                        ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <span>✏️ Điền vào ô trống</span>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
                   Bài / Chương:
@@ -1497,14 +1594,32 @@ export default function QuizDetailPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  Nội dung câu hỏi <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Nội dung câu hỏi <span className="text-rose-500">*</span>
+                  </label>
+                  {qType === 'fill_in_blank' && (
+                    <button
+                      type="button"
+                      onClick={() => setQContent(prev => prev ? `${prev} [blank]` : '[blank]')}
+                      className="px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[11px] font-bold hover:bg-amber-200 transition-colors border border-amber-300 dark:border-amber-700"
+                      title="Chèn ký hiệu [blank] vào câu hỏi"
+                    >
+                      + Chèn [blank]
+                    </button>
+                  )}
+                </div>
+                {qType === 'fill_in_blank' && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5">
+                    💡 Dùng <code className="text-amber-600 dark:text-amber-400 font-bold">[blank]</code> hoặc <code className="text-amber-600 dark:text-amber-400 font-bold">...</code> để chỉ định vị trí học viên cần nhập câu trả lời.
+                  </p>
+                )}
                 <textarea
                   rows={3}
                   required
                   value={qContent}
                   onChange={(e) => setQContent(e.target.value)}
+                  placeholder={qType === 'fill_in_blank' ? "Ví dụ: Trong Python, để truy xuất phần tử thứ 2 của danh sách fruits, ta viết: fruits[blank]" : "Nhập nội dung câu hỏi..."}
                   className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1517,7 +1632,7 @@ export default function QuizDetailPage() {
                     <span>Trợ lý AI Phân Tích & Giải Thích</span>
                   </div>
                   <div className="text-[11px] text-purple-700 dark:text-purple-300">
-                    Tự động tìm đáp án chuẩn và viết 4 lời giải thích chuyên sâu
+                    {qType === 'fill_in_blank' ? 'Tự động giải và suy luận đáp án chính xác điền vào ô trống' : 'Tự động tìm đáp án chuẩn và viết 4 lời giải thích chuyên sâu'}
                   </div>
                 </div>
                 <button
@@ -1547,77 +1662,114 @@ export default function QuizDetailPage() {
                 </div>
               )}
 
-              {/* 4 Options */}
-              <div className="space-y-3 pt-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  4 Đáp án (Chọn nút tròn để đặt đáp án đúng):
-                </label>
+              {/* Conditional Answer Inputs */}
+              {qType === 'fill_in_blank' ? (
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 mb-1.5 flex items-center justify-between">
+                      <span>Đáp án chuẩn xác cho ô trống <span className="text-rose-500">*</span></span>
+                      <span className="text-[11px] font-normal lowercase text-slate-500 dark:text-slate-400">
+                        Nhiều đáp án cách nhau bằng dấu <code className="font-mono font-bold text-amber-600">|</code>
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={qCorrect}
+                      onChange={(e) => setQCorrect(e.target.value)}
+                      placeholder="Ví dụ: fruits[1] hoặc banana | 'banana'"
+                      className="w-full px-4 py-2.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700/80 rounded-xl text-slate-900 dark:text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
 
-                {['A', 'B', 'C', 'D'].map((optKey) => {
-                  const val = optKey === 'A' ? qOptionA : optKey === 'B' ? qOptionB : optKey === 'C' ? qOptionC : qOptionD;
-                  const setVal = optKey === 'A' ? setQOptionA : optKey === 'B' ? setQOptionB : optKey === 'C' ? setQOptionC : setQOptionD;
-                  const isChecked = qCorrect === optKey;
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                      Lời giải thích chi tiết (Tùy chọn):
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={qExpA}
+                      onChange={(e) => setQExpA(e.target.value)}
+                      placeholder="Nhập lời giải thích ngắn gọn vì sao đáp án này là chính xác..."
+                      className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* 4 Options */}
+                  <div className="space-y-3 pt-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                      4 Đáp án (Chọn nút tròn để đặt đáp án đúng):
+                    </label>
 
-                  return (
-                    <div
-                      key={optKey}
-                      className={`flex items-center gap-3 p-2.5 rounded-2xl border transition-all ${
-                        isChecked
-                          ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500'
-                          : 'bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setQCorrect(optKey)}
-                        className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${
-                          isChecked
-                            ? 'bg-emerald-600 text-white shadow-md'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-600 hover:text-white'
-                        }`}
-                        title="Đặt làm đáp án đúng"
-                      >
-                        {optKey}
-                      </button>
+                    {['A', 'B', 'C', 'D'].map((optKey) => {
+                      const val = optKey === 'A' ? qOptionA : optKey === 'B' ? qOptionB : optKey === 'C' ? qOptionC : qOptionD;
+                      const setVal = optKey === 'A' ? setQOptionA : optKey === 'B' ? setQOptionB : optKey === 'C' ? setQOptionC : setQOptionD;
+                      const isChecked = qCorrect === optKey;
 
-                      <input
-                        type="text"
-                        required
-                        value={val}
-                        onChange={(e) => setVal(e.target.value)}
-                        placeholder={`Nội dung đáp án ${optKey}...`}
-                        className="flex-1 bg-transparent text-slate-900 dark:text-white text-sm focus:outline-none"
-                      />
+                      return (
+                        <div
+                          key={optKey}
+                          className={`flex items-center gap-3 p-2.5 rounded-2xl border transition-all ${
+                            isChecked
+                              ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500'
+                              : 'bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setQCorrect(optKey)}
+                            className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-all ${
+                              isChecked
+                                ? 'bg-emerald-600 text-white shadow-md'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-600 hover:text-white'
+                            }`}
+                            title="Đặt làm đáp án đúng"
+                          >
+                            {optKey}
+                          </button>
 
-                      {isChecked && (
-                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 shrink-0">
-                          ĐÚNG
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                          <input
+                            type="text"
+                            required
+                            value={val}
+                            onChange={(e) => setVal(e.target.value)}
+                            placeholder={`Nội dung đáp án ${optKey}...`}
+                            className="flex-1 bg-transparent text-slate-900 dark:text-white text-sm focus:outline-none"
+                          />
 
-              {/* Explanation (Optional) */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  Giải thích chi tiết cho đáp án đúng (Tùy chọn):
-                </label>
-                <textarea
-                  rows={2}
-                  value={qCorrect === 'A' ? qExpA : qCorrect === 'B' ? qExpB : qCorrect === 'C' ? qExpC : qExpD}
-                  onChange={(e) => {
-                    const text = e.target.value;
-                    if (qCorrect === 'A') setQExpA(text);
-                    else if (qCorrect === 'B') setQExpB(text);
-                    else if (qCorrect === 'C') setQExpC(text);
-                    else setQExpD(text);
-                  }}
-                  placeholder="Nhập lời giải thích ngắn gọn..."
-                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+                          {isChecked && (
+                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 shrink-0">
+                              ĐÚNG
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Explanation (Optional) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                      Giải thích chi tiết cho đáp án đúng (Tùy chọn):
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={qCorrect === 'A' ? qExpA : qCorrect === 'B' ? qExpB : qCorrect === 'C' ? qExpC : qExpD}
+                      onChange={(e) => {
+                        const text = e.target.value;
+                        if (qCorrect === 'A') setQExpA(text);
+                        else if (qCorrect === 'B') setQExpB(text);
+                        else if (qCorrect === 'C') setQExpC(text);
+                        else setQExpD(text);
+                      }}
+                      placeholder="Nhập lời giải thích ngắn gọn..."
+                      className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Image URL (Optional) */}
               <div>

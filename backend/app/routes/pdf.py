@@ -142,19 +142,23 @@ async def parse_pdf_quiz(
 
             question_objects = []
             for q in all_parsed_questions:
-                c_ans = sanitize_sql_str(q.get("correct_answer", "A"), "A").upper()
-                if c_ans not in ["A", "B", "C", "D"]:
-                    c_ans = "A"
+                q_type = q.get("question_type") or "multiple_choice"
+                raw_ans = sanitize_sql_str(q.get("correct_answer", ""))
+                if q_type == "multiple_choice":
+                    c_ans = raw_ans.upper() if raw_ans in ["A", "B", "C", "D"] else "A"
+                else:
+                    c_ans = raw_ans or "đáp án"
 
                 question_objects.append(
                     Question(
                         quiz_id=quiz.id,
                         chapter=sanitize_sql_str(q.get("chapter"), "Bài 1"),
+                        question_type=q_type,
                         content=sanitize_sql_str(q.get("content")),
-                        option_a=sanitize_sql_str(q.get("option_a")),
-                        option_b=sanitize_sql_str(q.get("option_b")),
-                        option_c=sanitize_sql_str(q.get("option_c")),
-                        option_d=sanitize_sql_str(q.get("option_d")),
+                        option_a=sanitize_sql_str(q.get("option_a", "")),
+                        option_b=sanitize_sql_str(q.get("option_b", "")),
+                        option_c=sanitize_sql_str(q.get("option_c", "")),
+                        option_d=sanitize_sql_str(q.get("option_d", "")),
                         correct_answer=c_ans,
                         explanation_a=sanitize_sql_str(q.get("explanation_a")),
                         explanation_b=sanitize_sql_str(q.get("explanation_b")),

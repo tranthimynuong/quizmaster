@@ -12,10 +12,10 @@ echo ========================================================
 set SCRIPT_DIR=%~dp0
 
 echo [1/3] Khoi dong Backend Server (FastAPI)...
-start "QuizMaster Backend (Port 8000)" cmd /k "title QuizMaster Backend && cd /d "%SCRIPT_DIR%backend" && .\venv\Scripts\python.exe run.py"
+start "QuizMaster Backend (Port 8000)" /D "%SCRIPT_DIR%backend" cmd /k ".\venv\Scripts\python.exe run.py"
 
 echo [2/3] Khoi dong Frontend (React Vite)...
-start "QuizMaster Frontend (Port 5173)" cmd /k "title QuizMaster Frontend && cd /d "%SCRIPT_DIR%frontend" && npm run dev"
+start "QuizMaster Frontend (Port 5173)" /D "%SCRIPT_DIR%frontend" cmd /k "npm run dev"
 
 echo [3/3] Dang mo trinh duyet...
 timeout /t 3 /nobreak >nul

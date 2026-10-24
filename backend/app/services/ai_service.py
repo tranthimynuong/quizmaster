@@ -13,30 +13,93 @@ logger = logging.getLogger(__name__)
 
 def solve_and_explain_question(
     content: str,
-    option_a: str,
-    option_b: str,
-    option_c: str,
-    option_d: str,
-    current_answer: Optional[str] = None
+    option_a: str = "",
+    option_b: str = "",
+    option_c: str = "",
+    option_d: str = "",
+    current_answer: Optional[str] = None,
+    question_type: str = "multiple_choice"
 ) -> Dict[str, Any]:
     """
-    Analyzes question and 4 options to:
-    1. Determine the accurate correct answer (A, B, C, or D).
-    2. Generate meaningful, crystal-clear pedagogical explanations for all 4 options.
+    Analyzes question (multiple_choice or fill_in_blank) to:
+    1. Determine the accurate correct answer.
+    2. Generate meaningful, crystal-clear pedagogical explanations.
     Uses Gemini API if available; otherwise uses high-precision heuristic reasoning engine.
     """
     api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
     
     if api_key:
         try:
-            ai_result = _call_gemini_solver(api_key, content, option_a, option_b, option_c, option_d)
+            if question_type == "fill_in_blank":
+                ai_result = _call_gemini_fill_blank_solver(api_key, content, current_answer)
+            else:
+                ai_result = _call_gemini_solver(api_key, content, option_a, option_b, option_c, option_d)
             if ai_result:
                 return ai_result
         except Exception as e:
             logger.warning(f"Gemini AI solver error: {e}, falling back to built-in reasoning engine.")
 
     # Built-in intelligent reasoning engine
+    if question_type == "fill_in_blank":
+        ans = (current_answer or "").strip() or "đáp án"
+        return {
+            "correct_answer": ans,
+            "explanation_a": f"Từ/cụm từ chính xác cần điền vào ô trống là '{ans}'.",
+            "explanation_b": "",
+            "explanation_c": "",
+            "explanation_d": ""
+        }
     return _heuristic_reasoning_engine(content, option_a, option_b, option_c, option_d, current_answer)
+
+
+def _call_gemini_fill_blank_solver(
+    api_key: str,
+    content: str,
+    current_answer: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Calls Gemini REST API to solve fill-in-the-blank questions."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    prompt = f"""Bạn là một chuyên gia giáo dục và lập trình viên cao cấp.
+Nhiệm vụ của bạn:
+1. Phân tích câu hỏi dạng ĐIỀN VÀO CHỖ TRỐNG (Fill-in-the-blank) dưới đây (vị trí cần điền được đánh dấu bằng [blank], ..., hoặc ___).
+2. Xác định chính xác từ, cụm từ, cú pháp hoặc đoạn mã cần điền vào chỗ trống.
+   (Gợi ý hiện tại nếu có: '{current_answer or ""}')
+3. Viết lời giải thích chuyên sâu, sư phạm, rõ ràng tại sao lại điền như vậy.
+4. LƯU Ý ĐỊNH DẠNG:
+   - Nếu là công thức Toán/Lý/Hóa, dùng LaTeX ($...$).
+   - Nếu là code (Python, C, JS...), giữ nguyên cú pháp và bọc bằng backtick hoặc khối mã.
+
+Câu hỏi:
+{content}
+
+BẮT BUỘC trả về định dạng JSON thuần túy (không kèm markdown ```json):
+{{
+  "correct_answer": "từ_hoặc_mã_cần_điền",
+  "explanation_a": "Giải thích chi tiết và nguyên lý tại sao lại điền từ/mã này..."
+}}
+"""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'},
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=12) as response:
+        res_data = json.loads(response.read().decode('utf-8'))
+        raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
+        cleaned = re.sub(r'^```json\s*|\s*```$', '', raw_text.strip(), flags=re.MULTILINE)
+        data = json.loads(cleaned)
+        if data.get("correct_answer"):
+            data.setdefault("explanation_b", "")
+            data.setdefault("explanation_c", "")
+            data.setdefault("explanation_d", "")
+            return data
+    return None
 
 
 def _call_gemini_solver(
@@ -363,15 +426,20 @@ def parse_exam_with_gemini(raw_text: str, default_chapter: str = "Bài 1") -> Li
     all_questions = []
 
     for chunk in chunks[:10]: # Max 10 chunks to prevent runaway API requests
-        prompt = f"""Bạn là chuyên gia phân tích và bóc tách đề thi trắc nghiệm (Exam Parser AI) hàng đầu.
+        prompt = f"""Bạn là chuyên gia phân tích và bóc tách đề thi/slide bài giảng (Multimodal Exam & Slide Parser AI) hàng đầu thế giới.
 Nhiệm vụ của bạn:
-1. Đọc văn bản đề thi dưới đây và bóc tách TOÀN BỘ các câu hỏi trắc nghiệm kèm 4 lựa chọn A, B, C, D.
-2. Nếu đề thi có chỉ rõ đáp án (qua dấu tích ✓, chữ in đậm, gạch chân [COLOR_MARK], bảng đáp án hoặc dòng 'Đáp án: X'), hãy lấy chính xác đáp án đó. Nếu không có, bạn hãy giải và chọn đáp án chính xác nhất.
-3. ĐẶC BIỆT LƯU Ý VỀ ĐỊNH DẠNG:
-   - Các công thức Toán học, Vật lý, Hóa học (như tích phân, căn bậc hai, ma trận, phân số, số mũ...) BẮT BUỘC viết dưới dạng LaTeX chuẩn kẹp giữa dấu $ (ví dụ: $\\int_0^1 x dx$, $\\frac{{a}}{{b}}$, $x^2 + y^2$).
+1. Đọc văn bản đề thi/slide bài giảng dưới đây và bóc tách TOÀN BỘ các câu hỏi trắc nghiệm hoặc điền khuyết.
+2. PHÂN LOẠI CÂU HỎI & NHẬN DIỆN DẠNG BÀI:
+   - Dạng 'multiple_choice': Có các phương án A, B, C, D rõ ràng.
+   - Dạng 'fill_in_blank': Câu hỏi điền vào chỗ trống, điền khuyết, hoàn thành đoạn code hoặc công thức. Vị trí cần điền trong câu hỏi được quy ước đặt là '[blank]'.
+3. BÓC TÁCH ĐÁP ÁN:
+   - Nếu đề thi có chỉ rõ đáp án (qua dấu tích ✓, chữ in đậm, gạch chân [COLOR_MARK], bảng đáp án hoặc dòng 'Đáp án: X'), hãy lấy chính xác đáp án đó.
+   - Đối với câu hỏi điền khuyết có từ/mã code nằm trong ngoặc vuông (như [fruits[1]]) hoặc bôi màu [COLOR_MARK] đè lên dấu ba chấm (...), đó chính là đáp án đã điền sẵn! Hãy trích xuất từ đó vào 'correct_answer' và thay thế vị trí đó trong 'content' bằng '[blank]'.
+4. ĐẶC BIỆT LƯU Ý VỀ ĐỊNH DẠNG:
+   - Các công thức Toán học, Vật lý, Hóa học BẮT BUỘC viết dưới dạng LaTeX chuẩn kẹp giữa dấu $ (ví dụ: $\\int_0^1 x dx$, $\\frac{{a}}{{b}}$, $x^2 + y^2$).
    - Các đoạn mã lập trình (Python, C, C++, Java, JS, SQL, HTML...) BẮT BUỘC đặt trong khối Markdown ```ngôn_ngữ để giữ nguyên thụt lề và dấu cách.
    - Các biến hoặc lệnh ngắn trong câu bọc bằng backtick (ví dụ: `range()`, `list.append()`).
-4. Tự động chia chương/bài (chapter) theo tiêu đề phát hiện trong bài, nếu không có hãy ghi '{default_chapter}'.
+5. Tự động chia chương/bài (chapter) theo tiêu đề phát hiện trong bài, nếu không có hãy ghi '{default_chapter}'.
 
 VĂN BẢN ĐỀ THI:
 \"\"\"
@@ -382,16 +450,17 @@ BẮT BUỘC trả về JSON mảng danh sách câu hỏi:
 [
   {{
     "chapter": "Tên chương hoặc bài...",
-    "content": "Nội dung câu hỏi đầy đủ...",
-    "option_a": "Nội dung phương án A...",
-    "option_b": "Nội dung phương án B...",
-    "option_c": "Nội dung phương án C...",
-    "option_d": "Nội dung phương án D...",
-    "correct_answer": "A" hoặc "B" hoặc "C" hoặc "D",
-    "explanation_a": "Giải thích ngắn gọn...",
-    "explanation_b": "Giải thích ngắn gọn...",
-    "explanation_c": "Giải thích ngắn gọn...",
-    "explanation_d": "Giải thích ngắn gọn..."
+    "question_type": "multiple_choice" hoặc "fill_in_blank",
+    "content": "Nội dung câu hỏi đầy đủ (chứa [blank] nếu là câu điền khuyết)...",
+    "option_a": "Nội dung phương án A (hoặc '' nếu là fill_in_blank)...",
+    "option_b": "Nội dung phương án B (hoặc '' nếu là fill_in_blank)...",
+    "option_c": "Nội dung phương án C (hoặc '' nếu là fill_in_blank)...",
+    "option_d": "Nội dung phương án D (hoặc '' nếu là fill_in_blank)...",
+    "correct_answer": "A/B/C/D (đối với multiple_choice) hoặc từ/mã cần điền (đối với fill_in_blank)",
+    "explanation_a": "Giải thích chi tiết...",
+    "explanation_b": "Giải thích...",
+    "explanation_c": "Giải thích...",
+    "explanation_d": "Giải thích..."
   }}
 ]
 """
@@ -415,10 +484,15 @@ BẮT BUỘC trả về JSON mảng danh sách câu hỏi:
                 data = json.loads(resp.read().decode("utf-8"))
                 text_out = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                 parsed_json = json.loads(text_out)
-                if isinstance(parsed_json, list):
-                    all_questions.extend(parsed_json)
-                elif isinstance(parsed_json, dict) and "questions" in parsed_json:
-                    all_questions.extend(parsed_json["questions"])
+                q_list = parsed_json if isinstance(parsed_json, list) else parsed_json.get("questions", [])
+                for q in q_list:
+                    if not q.get("question_type"):
+                        q["question_type"] = "fill_in_blank" if "[blank]" in q.get("content", "") or not q.get("option_a") else "multiple_choice"
+                    q.setdefault("option_a", "")
+                    q.setdefault("option_b", "")
+                    q.setdefault("option_c", "")
+                    q.setdefault("option_d", "")
+                    all_questions.append(q)
         except Exception as e:
             logger.warning(f"Gemini exam parsing chunk error: {e}")
             continue
@@ -428,11 +502,12 @@ BẮT BUỘC trả về JSON mảng danh sách câu hỏi:
 
 def parse_exam_with_gemini_vision(pdf_bytes: bytes, default_chapter: str = "Bài 1", max_pages: int = 15) -> List[Dict[str, Any]]:
     """
-    Multimodal Visual Exam Parser using Gemini 1.5 Flash Vision.
-    Directly renders high-res page images from the PDF to read:
-    1. Mathematical formulas with 100% optical fidelity ($S = 60t$, $V = x^3$, fractions, roots).
-    2. Questions with geometric figures, plots, diagrams.
-    3. Multi-column slide presentations and scanned test papers without font encoding corruptions.
+    Multimodal Visual Exam & Slide Parser using Gemini 1.5 Flash Vision.
+    Directly renders high-res page images from the PDF and applies:
+    1. Document Layout Analysis (DLA): Reads two-column layouts column-by-column (left block top-to-bottom first, then right block).
+    2. Visual Clues Detection: Identifies fill-in-the-blank answers highlighted in yellow/colors, red text, brackets [fruits[1]], or blanks (... / ___).
+    3. Mathematical formulas with 100% optical fidelity ($S = 60t$, $V = x^3$, fractions, roots).
+    4. Code blocks preservation with exact indentation.
     """
     api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
     if not api_key or not pdf_bytes:
@@ -458,31 +533,51 @@ def parse_exam_with_gemini_vision(pdf_bytes: bytes, default_chapter: str = "Bài
         end_idx = min(start_idx + batch_size, total_pages)
         parts = []
 
-        prompt = f"""Bạn là chuyên gia phân tích và bóc tách đề thi trắc nghiệm (Exam Parser AI) hàng đầu.
-Trước mặt bạn là hình ảnh chụp trực quan của trang {start_idx + 1} đến {end_idx} trong đề thi.
-Nhiệm vụ của bạn:
-1. Đọc hình ảnh và bóc tách TOÀN BỘ các câu hỏi trắc nghiệm có trong các trang này kèm 4 lựa chọn A, B, C, D.
-2. ĐẶC BIỆT CHÍNH XÁC VỀ CÔNG THỨC TOÁN HỌC & KÝ HIỆU:
-   - Hãy quan sát quang học để đọc chính xác từng công thức: dấu bằng (=), số mũ ($x^3$), chỉ số dưới ($x_1$), phân số ($\\frac{{a}}{{b}}$), căn thức ($\\sqrt{{x}}$), hàm số ($S = 60t$).
-   - BẮT BUỘC viết tất cả công thức toán, biến số hoặc biểu thức khoa học dưới dạng LaTeX chuẩn kẹp giữa dấu $ (ví dụ: $S = 60t$, $V = x^3$, $y = 2x + 1$).
-3. Nếu câu hỏi có hình vẽ (hình học, đồ thị, mạch điện, bảng dữ liệu), hãy ghi chú ngắn gọn vào nội dung câu hỏi.
-4. Xác định đáp án đúng dựa trên dấu tích ✓, chữ in đậm, gạch chân hoặc giải trực tiếp nếu không đánh dấu.
+        prompt = f"""Bạn là chuyên gia phân tích và bóc tách đề thi/slide bài giảng (Multimodal Exam & Slide Parser AI) hàng đầu thế giới.
+Trước mặt bạn là hình ảnh chụp trực quan của trang/slide {start_idx + 1} đến {end_idx}.
+
+HÃY ÁP DỤNG CÁC NGUYÊN TẮC CỐT LÕI (MULTIMODAL FUSION & DOCUMENT LAYOUT ANALYSIS):
+
+1. PHÂN TÍCH BỐ CỤC (LAYOUT ANALYSIS):
+   - Nếu trang hoặc slide chia 2 cột (Multi-column layout), BẮT BUỘC đọc và bóc tách TOÀN BỘ khối câu hỏi ở cột bên trái từ trên xuống dưới trước, SAU ĐÓ mới chuyển sang đọc cột bên phải. Tuyệt đối không đọc nối ngang hàng làm đảo lộn cấu trúc câu hỏi.
+
+2. PHÂN LOẠI DẠNG CÂU HỎI (QUESTION TYPE):
+   - Dạng 1: 'multiple_choice' -> Có các lựa chọn rõ ràng (A, B, C, D).
+   - Dạng 2: 'fill_in_blank' -> Câu hỏi điền vào chỗ trống, điền khuyết cú pháp hoặc hoàn thiện code / công thức. Vị trí cần điền trong câu hỏi đặt là '[blank]'.
+
+3. BẮT TÍN HIỆU THỊ GIÁC (VISUAL CLUES & ĐÁP ÁN ĐIỀN SẴN):
+   - Trong slide bài giảng, các câu hỏi điền khuyết thường đã có sẵn đáp án của giảng viên được biểu thị qua các tín hiệu thị giác:
+     + Chữ có nền bôi highlight màu (vàng, xanh lá, cam, hồng...)
+     + Chữ in màu đỏ hoặc xanh nổi bật so với phần text còn lại
+     + Chữ nằm trong cặp ngoặc vuông như [fruits[1]] hoặc chữ in đậm nằm đè lên dấu ba chấm (...) hoặc gạch dưới (___).
+   - KHI GẶP CÁC TÍN HIỆU TRÊN:
+     * Đặt 'question_type': 'fill_in_blank'
+     * Trong 'content': Đặt ký hiệu '[blank]' vào đúng vị trí ô trống đó.
+     * Trong 'correct_answer': Điền chính xác từ/cụm từ/mã code được highlight/chữ đỏ (bỏ ngoặc vuông ngoài cùng nếu có, ví dụ: 'fruits[1]').
+     * 'option_a', 'option_b', 'option_c', 'option_d': Để chuỗi rỗng "".
+
+4. CÔNG THỨC TOÁN & ĐOẠN MÃ LẬP TRÌNH:
+   - Đọc chính xác từng ký hiệu: số mũ ($x^3$), chỉ số dưới ($x_1$), phân số ($\\frac{{a}}{{b}}$), căn thức ($\\sqrt{{x}}$), hàm số ($S = 60t$).
+   - BẮT BUỘC viết tất cả công thức toán dưới dạng LaTeX chuẩn kẹp giữa dấu $ (ví dụ: $S = 60t$, $V = x^3$).
+   - Các đoạn mã lập trình (Python, C, SQL...) giữ nguyên thụt đầu dòng và bọc trong khối Markdown ```language.
+
 5. Chia chương/bài (chapter) theo tiêu đề trong đề thi, hoặc ghi '{default_chapter}'.
 
 BẮT BUỘC trả về JSON mảng các câu hỏi theo định dạng:
 [
   {{
     "chapter": "Tên chương hoặc bài...",
-    "content": "Nội dung câu hỏi đầy đủ...",
-    "option_a": "Nội dung phương án A...",
-    "option_b": "Nội dung phương án B...",
-    "option_c": "Nội dung phương án C...",
-    "option_d": "Nội dung phương án D...",
-    "correct_answer": "A" hoặc "B" hoặc "C" hoặc "D",
-    "explanation_a": "Giải thích ngắn...",
-    "explanation_b": "Giải thích ngắn...",
-    "explanation_c": "Giải thích ngắn...",
-    "explanation_d": "Giải thích ngắn..."
+    "question_type": "multiple_choice" hoặc "fill_in_blank",
+    "content": "Nội dung câu hỏi đầy đủ (chứa [blank] nếu là câu điền khuyết)...",
+    "option_a": "Nội dung phương án A (hoặc '' nếu là fill_in_blank)...",
+    "option_b": "Nội dung phương án B (hoặc '' nếu là fill_in_blank)...",
+    "option_c": "Nội dung phương án C (hoặc '' nếu là fill_in_blank)...",
+    "option_d": "Nội dung phương án D (hoặc '' nếu là fill_in_blank)...",
+    "correct_answer": "A/B/C/D (đối với multiple_choice) hoặc từ/mã cần điền (đối với fill_in_blank)",
+    "explanation_a": "Giải thích chi tiết...",
+    "explanation_b": "...",
+    "explanation_c": "...",
+    "explanation_d": "..."
   }}
 ]
 """
@@ -523,10 +618,15 @@ BẮT BUỘC trả về JSON mảng các câu hỏi theo định dạng:
                 data = json.loads(resp.read().decode("utf-8"))
                 text_out = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                 parsed_json = json.loads(text_out)
-                if isinstance(parsed_json, list):
-                    all_questions.extend(parsed_json)
-                elif isinstance(parsed_json, dict) and "questions" in parsed_json:
-                    all_questions.extend(parsed_json["questions"])
+                q_list = parsed_json if isinstance(parsed_json, list) else parsed_json.get("questions", [])
+                for q in q_list:
+                    if not q.get("question_type"):
+                        q["question_type"] = "fill_in_blank" if "[blank]" in q.get("content", "") or not q.get("option_a") else "multiple_choice"
+                    q.setdefault("option_a", "")
+                    q.setdefault("option_b", "")
+                    q.setdefault("option_c", "")
+                    q.setdefault("option_d", "")
+                    all_questions.append(q)
         except Exception as e:
             logger.warning(f"Gemini Vision parsing error on pages {start_idx + 1}-{end_idx}: {e}")
             continue

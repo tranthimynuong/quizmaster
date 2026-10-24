@@ -13,6 +13,104 @@ export default function OptionExplanationCard({
 
   if (!question) return null;
 
+  const isFillInBlank = question.question_type === 'fill_in_blank';
+
+  if (isFillInBlank) {
+    const userAns = (selectedOption || '').trim();
+    const correctAns = (question.correct_answer || '').trim();
+    
+    // Fuzzy check for display consistency
+    const isExact = userAns.toLowerCase() === correctAns.toLowerCase();
+    const cleanUser = userAns.toLowerCase().replace(/\s+/g, '').replace(/["']/g, '');
+    const cleanCorr = correctAns.toLowerCase().replace(/\s+/g, '').replace(/["']/g, '');
+    const isCorrect = isExact || cleanUser === cleanCorr;
+
+    return (
+      <div className="space-y-3">
+        <div
+          className={`rounded-2xl p-4 sm:p-5 border transition-all ${
+            isCorrect
+              ? 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/30'
+              : 'border-2 border-rose-400 bg-rose-50/80 dark:bg-rose-950/30'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-7 h-7 rounded-full text-xs sm:text-sm font-bold flex items-center justify-center shrink-0 mt-0.5 text-white ${
+                isCorrect ? 'bg-emerald-600' : 'bg-rose-600'
+              }`}
+            >
+              {isCorrect ? <Check className="w-4 h-4 stroke-[3]" /> : <X className="w-4 h-4 stroke-[3]" />}
+            </div>
+
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Câu hỏi điền vào ô trống
+                </span>
+                <span
+                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                    isCorrect
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                  }`}
+                >
+                  {isCorrect ? 'Trả lời đúng' : 'Chưa chính xác'}
+                </span>
+              </div>
+
+              {/* User Answer vs Correct Answer */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800">
+                  <span className="text-[11px] font-semibold text-slate-500 block mb-1">Câu trả lời của bạn:</span>
+                  <div className={`font-mono text-sm font-bold break-all ${isCorrect ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    {userAns || <em className="text-slate-400 font-sans font-normal">(Chưa điền đáp án)</em>}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-emerald-100/60 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800">
+                  <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 block mb-1">Đáp án chuẩn xác:</span>
+                  <div className="font-mono text-sm font-bold text-emerald-900 dark:text-emerald-200 break-all">
+                    {correctAns}
+                  </div>
+                </div>
+              </div>
+
+              {/* Explanation */}
+              {(question.explanation_a || question.explanation_b) && (
+                <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60 text-xs sm:text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                  <strong className="text-slate-900 dark:text-white">💡 Giải thích: </strong>
+                  <FormattedContent text={question.explanation_a || question.explanation_b} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* AI Tutor Guidance Button */}
+        <div className="pt-2 flex items-center justify-between flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setIsAITutorOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-indigo-500/10 hover:from-indigo-500/20 hover:to-purple-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold transition-all shadow-2xs hover:shadow-sm"
+          >
+            <Bot className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Hỏi Gia Sư AI giải thích sâu</span>
+            <Sparkles className="w-3 h-3 text-amber-500" />
+          </button>
+        </div>
+
+        <AITutorModal
+          isOpen={isAITutorOpen}
+          onClose={() => setIsAITutorOpen(false)}
+          quizId={quizId || question.quiz_id}
+          question={question}
+          userChoice={selectedOption}
+        />
+      </div>
+    );
+  }
+
   const options = [
     { key: 'A', text: question.option_a, exp: question.explanation_a },
     { key: 'B', text: question.option_b, exp: question.explanation_b },

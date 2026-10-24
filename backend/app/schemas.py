@@ -65,22 +65,24 @@ class ChangePasswordRequest(BaseModel):
 
 class AiSolveRequest(BaseModel):
     content: str
-    option_a: str
-    option_b: str
-    option_c: str
-    option_d: str
+    question_type: Optional[str] = "multiple_choice"
+    option_a: Optional[str] = ""
+    option_b: Optional[str] = ""
+    option_c: Optional[str] = ""
+    option_d: Optional[str] = ""
     current_answer: Optional[str] = None
 
 
 # ================= QUESTION SCHEMAS =================
 class QuestionBase(BaseModel):
     chapter: Optional[str] = "Bài 1"
+    question_type: Optional[str] = "multiple_choice"
     content: str
-    option_a: str
-    option_b: str
-    option_c: str
-    option_d: str
-    correct_answer: str = Field(..., pattern="^[A-Da-d]$")
+    option_a: Optional[str] = ""
+    option_b: Optional[str] = ""
+    option_c: Optional[str] = ""
+    option_d: Optional[str] = ""
+    correct_answer: str
     explanation_a: Optional[str] = None
     explanation_b: Optional[str] = None
     explanation_c: Optional[str] = None
@@ -94,12 +96,13 @@ class QuestionCreate(QuestionBase):
 
 class QuestionUpdate(BaseModel):
     chapter: Optional[str] = None
+    question_type: Optional[str] = None
     content: Optional[str] = None
     option_a: Optional[str] = None
     option_b: Optional[str] = None
     option_c: Optional[str] = None
     option_d: Optional[str] = None
-    correct_answer: Optional[str] = Field(None, pattern="^[A-Da-d]$")
+    correct_answer: Optional[str] = None
     explanation_a: Optional[str] = None
     explanation_b: Optional[str] = None
     explanation_c: Optional[str] = None

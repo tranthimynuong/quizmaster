@@ -87,6 +87,19 @@ def run_database_migrations_and_seed():
                     ) THEN
                         ALTER TABLE questions ADD COLUMN image_url VARCHAR(500);
                     END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='questions' AND column_name='question_type'
+                    ) THEN
+                        ALTER TABLE questions ADD COLUMN question_type VARCHAR(50) DEFAULT 'multiple_choice' NOT NULL;
+                    END IF;
+
+                    ALTER TABLE questions ALTER COLUMN correct_answer TYPE TEXT;
+                    ALTER TABLE questions ALTER COLUMN option_a DROP NOT NULL;
+                    ALTER TABLE questions ALTER COLUMN option_b DROP NOT NULL;
+                    ALTER TABLE questions ALTER COLUMN option_c DROP NOT NULL;
+                    ALTER TABLE questions ALTER COLUMN option_d DROP NOT NULL;
                 END $$;
             """))
             conn.commit()

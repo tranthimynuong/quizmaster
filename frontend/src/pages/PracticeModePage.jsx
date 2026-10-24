@@ -240,6 +240,24 @@ export default function PracticeModePage() {
   const currentQ = questions[currentIndex];
   const selectedOption = currentQ ? userAnswers[currentQ.id] : null;
   const isAnswered = selectedOption !== undefined && selectedOption !== null;
+  const isFillInBlank = currentQ?.question_type === 'fill_in_blank';
+
+  const [fillBlankInput, setFillBlankInput] = useState('');
+  useEffect(() => {
+    setFillBlankInput(userAnswers[currentQ?.id] || '');
+  }, [currentQ?.id, userAnswers]);
+
+  const checkFillInBlankCorrect = (userAns, correctAns) => {
+    if (!userAns || !correctAns) return false;
+    const u = userAns.trim().toLowerCase();
+    const c = correctAns.trim().toLowerCase();
+    if (u === c) return true;
+    const cleanU = u.replace(/\s+/g, '').replace(/["']/g, '');
+    const cleanC = c.replace(/\s+/g, '').replace(/["']/g, '');
+    if (cleanU === cleanC) return true;
+    const acceptable = c.split(/[|;\n]/).map(s => s.trim().toLowerCase());
+    return acceptable.includes(u) || acceptable.some(a => a.replace(/\s+/g, '') === cleanU);
+  };
 
   const handleSelectOption = (optionKey) => {
     if (!currentQ) return;
@@ -249,7 +267,11 @@ export default function PracticeModePage() {
       [currentQ.id]: optionKey
     }));
 
-    if (optionKey.toUpperCase() === currentQ.correct_answer?.toUpperCase()) {
+    const isMatch = isFillInBlank
+      ? checkFillInBlankCorrect(optionKey, currentQ.correct_answer)
+      : (optionKey.toUpperCase() === currentQ.correct_answer?.toUpperCase());
+
+    if (isMatch) {
       confetti({
         particleCount: 35,
         spread: 55,
@@ -615,105 +637,190 @@ export default function PracticeModePage() {
           </h1>
         </div>
 
-        {/* Options List */}
-        <div className="space-y-3 sm:space-y-3.5">
-          {optionList.map((opt) => {
-            const optKey = opt.key;
-            const isSelected = selectedOption?.toUpperCase() === optKey;
-            const isCorrect = optKey === correctKey;
-            const showAnswer = isStudy || isAnswered;
+        {/* Options List or Fill In The Blank Input */}
+        {isFillInBlank ? (
+          <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-amber-500/5 via-indigo-500/5 to-purple-500/5 dark:from-amber-950/20 dark:via-indigo-950/20 dark:to-purple-950/20 border-2 border-amber-300/80 dark:border-amber-700/60 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                Câu hỏi điền vào ô trống (Fill-in-the-blank)
+              </span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {isStudy ? 'Chế độ xem đáp án' : (isAnswered ? 'Đã kiểm tra' : 'Nhập từ rồi bấm Kiểm tra hoặc Enter')}
+              </span>
+            </div>
 
-            let cardBorder = 'border-slate-200 dark:border-slate-700/80 bg-slate-50/50 hover:bg-slate-100/80 dark:bg-slate-800/40 dark:hover:bg-slate-800/80';
-            let circleStyle = 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300';
-            let letterStyle = 'text-slate-800 dark:text-slate-200 font-bold';
-            let textStyle = 'text-slate-800 dark:text-slate-200 font-medium';
-
-            if (showAnswer) {
-              if (isCorrect) {
-                cardBorder = 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/30 ring-1 ring-emerald-500/20';
-                circleStyle = 'border-emerald-500 bg-emerald-600 text-white';
-                letterStyle = 'text-emerald-900 dark:text-emerald-200 font-black';
-                textStyle = 'text-emerald-950 dark:text-emerald-100 font-semibold';
-              } else if (isSelected && !isCorrect && !isStudy) {
-                cardBorder = 'border-2 border-rose-400 bg-rose-50/80 dark:bg-rose-950/30 ring-1 ring-rose-400/20';
-                circleStyle = 'border-rose-500 bg-rose-600 text-white';
-                letterStyle = 'text-rose-900 dark:text-rose-200 font-black';
-                textStyle = 'text-rose-950 dark:text-rose-100 font-semibold';
-              } else {
-                cardBorder = 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/30 dark:bg-slate-900/30 opacity-75';
-                circleStyle = 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-400';
-                letterStyle = 'text-slate-500 dark:text-slate-400 font-medium';
-                textStyle = 'text-slate-600 dark:text-slate-400';
-              }
-            } else if (isSelected) {
-              cardBorder = 'border-2 border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/40 ring-1 ring-indigo-600/20';
-              circleStyle = 'border-indigo-600 bg-indigo-600 text-white';
-              letterStyle = 'text-indigo-950 dark:text-indigo-200 font-black';
-              textStyle = 'text-indigo-950 dark:text-indigo-100 font-bold';
-            }
-
-            return (
-              <div
-                key={optKey}
-                onClick={() => {
-                  if (!isStudy) handleSelectOption(optKey);
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={fillBlankInput}
+                onChange={(e) => setFillBlankInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && fillBlankInput.trim()) {
+                    e.preventDefault();
+                    handleSelectOption(fillBlankInput.trim());
+                  }
                 }}
-                className={`cursor-pointer rounded-2xl p-3.5 sm:p-4 border transition-all duration-200 ${cardBorder}`}
-              >
-                <div className="flex items-start gap-3">
-                  {/* Radio Indicator & Letter Badge */}
-                  <div className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 text-xs sm:text-sm font-bold shadow-xs transition-colors ${circleStyle}`}>
-                    {showAnswer && isCorrect ? (
-                      <Check className="w-4 h-4 stroke-[3]" />
-                    ) : showAnswer && isSelected && !isCorrect ? (
-                      <X className="w-4 h-4 stroke-[3]" />
-                    ) : (
-                      <span>{optKey}</span>
-                    )}
-                  </div>
+                disabled={isStudy}
+                placeholder="Gõ từ, cú pháp hoặc đoạn mã cần điền..."
+                className="flex-1 px-4 py-3 rounded-xl border-2 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono text-base focus:border-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:font-sans placeholder:text-sm"
+              />
+              {!isStudy && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (fillBlankInput.trim()) {
+                      handleSelectOption(fillBlankInput.trim());
+                    }
+                  }}
+                  className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm active:scale-95 transition-all shrink-0"
+                >
+                  Kiểm tra
+                </button>
+              )}
+            </div>
 
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
-                      <strong className={`mr-1.5 ${letterStyle}`}>{optKey}.</strong>
-                      <FormattedContent text={opt.text} compact />
-                    </span>
-                  </div>
-                </div>
-
-                {showAnswer && (
-                  <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60">
-                    {isCorrect && (
-                      <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-1">
-                        <Check className="w-4 h-4 stroke-[3]" />
-                        <span>{isStudy ? 'Đáp án đúng' : 'Câu trả lời chính xác'}</span>
+            {(isStudy || isAnswered) && (
+              <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 space-y-3">
+                {(() => {
+                  const isMatch = checkFillInBlankCorrect(selectedOption, currentQ.correct_answer);
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {isMatch ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-bold">
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            Chính xác tuyệt đối!
+                          </span>
+                        ) : !isStudy ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 text-xs font-bold">
+                            <X className="w-3.5 h-3.5 stroke-[3]" />
+                            Chưa chính xác
+                          </span>
+                        ) : null}
                       </div>
-                    )}
 
-                    {isSelected && !isCorrect && !isStudy && (
-                      <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400 mb-1">
-                        <X className="w-4 h-4 stroke-[3]" />
-                        <span>Chưa chính xác!</span>
+                      <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800">
+                        <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 block mb-0.5">
+                          Đáp án chuẩn xác:
+                        </span>
+                        <div className="font-mono text-sm font-bold text-emerald-900 dark:text-emerald-100 break-all">
+                          {currentQ.correct_answer}
+                        </div>
                       </div>
-                    )}
 
-                    {showExplanationToggle && (
-                      <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50 mt-1.5">
-                        <strong className="text-slate-800 dark:text-slate-200">💡 Giải thích: </strong>
-                        {opt.exp ? (
-                          <FormattedContent text={opt.exp} />
-                        ) : isCorrect ? (
-                          'Lựa chọn chính xác theo nội dung kiến thức của đề bài.'
-                        ) : (
-                          'Phương án này chưa chính xác theo lý thuyết đề bài.'
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
+                      {showExplanationToggle && (currentQ.explanation_a || currentQ.explanation_b) && (
+                        <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                          <strong className="text-slate-800 dark:text-slate-200">💡 Giải thích: </strong>
+                          <FormattedContent text={currentQ.explanation_a || currentQ.explanation_b} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-            );
-          })}
-        </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3 sm:space-y-3.5">
+            {optionList.map((opt) => {
+              const optKey = opt.key;
+              const isSelected = selectedOption?.toUpperCase() === optKey;
+              const isCorrect = optKey === correctKey;
+              const showAnswer = isStudy || isAnswered;
+
+              let cardBorder = 'border-slate-200 dark:border-slate-700/80 bg-slate-50/50 hover:bg-slate-100/80 dark:bg-slate-800/40 dark:hover:bg-slate-800/80';
+              let circleStyle = 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300';
+              let letterStyle = 'text-slate-800 dark:text-slate-200 font-bold';
+              let textStyle = 'text-slate-800 dark:text-slate-200 font-medium';
+
+              if (showAnswer) {
+                if (isCorrect) {
+                  cardBorder = 'border-2 border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/30 ring-1 ring-emerald-500/20';
+                  circleStyle = 'border-emerald-500 bg-emerald-600 text-white';
+                  letterStyle = 'text-emerald-900 dark:text-emerald-200 font-black';
+                  textStyle = 'text-emerald-950 dark:text-emerald-100 font-semibold';
+                } else if (isSelected && !isCorrect && !isStudy) {
+                  cardBorder = 'border-2 border-rose-400 bg-rose-50/80 dark:bg-rose-950/30 ring-1 ring-rose-400/20';
+                  circleStyle = 'border-rose-500 bg-rose-600 text-white';
+                  letterStyle = 'text-rose-900 dark:text-rose-200 font-black';
+                  textStyle = 'text-rose-950 dark:text-rose-100 font-semibold';
+                } else {
+                  cardBorder = 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/30 dark:bg-slate-900/30 opacity-75';
+                  circleStyle = 'border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-400';
+                  letterStyle = 'text-slate-500 dark:text-slate-400 font-medium';
+                  textStyle = 'text-slate-600 dark:text-slate-400';
+                }
+              } else if (isSelected) {
+                cardBorder = 'border-2 border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/40 ring-1 ring-indigo-600/20';
+                circleStyle = 'border-indigo-600 bg-indigo-600 text-white';
+                letterStyle = 'text-indigo-950 dark:text-indigo-200 font-black';
+                textStyle = 'text-indigo-950 dark:text-indigo-100 font-bold';
+              }
+
+              return (
+                <div
+                  key={optKey}
+                  onClick={() => {
+                    if (!isStudy) handleSelectOption(optKey);
+                  }}
+                  className={`cursor-pointer rounded-2xl p-3.5 sm:p-4 border transition-all duration-200 ${cardBorder}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Radio Indicator & Letter Badge */}
+                    <div className={`w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 text-xs sm:text-sm font-bold shadow-xs transition-colors ${circleStyle}`}>
+                      {showAnswer && isCorrect ? (
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      ) : showAnswer && isSelected && !isCorrect ? (
+                        <X className="w-4 h-4 stroke-[3]" />
+                      ) : (
+                        <span>{optKey}</span>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <span className={`text-sm sm:text-base leading-relaxed ${textStyle}`}>
+                        <strong className={`mr-1.5 ${letterStyle}`}>{optKey}.</strong>
+                        <FormattedContent text={opt.text} compact />
+                      </span>
+                    </div>
+                  </div>
+
+                  {showAnswer && (
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60">
+                      {isCorrect && (
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-1">
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>{isStudy ? 'Đáp án đúng' : 'Câu trả lời chính xác'}</span>
+                        </div>
+                      )}
+
+                      {isSelected && !isCorrect && !isStudy && (
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400 mb-1">
+                          <X className="w-4 h-4 stroke-[3]" />
+                          <span>Chưa chính xác!</span>
+                        </div>
+                      )}
+
+                      {showExplanationToggle && (
+                        <div className="text-xs sm:text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white/70 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50 mt-1.5">
+                          <strong className="text-slate-800 dark:text-slate-200">💡 Giải thích: </strong>
+                          {opt.exp ? (
+                            <FormattedContent text={opt.exp} />
+                          ) : isCorrect ? (
+                            'Lựa chọn chính xác theo nội dung kiến thức của đề bài.'
+                          ) : (
+                            'Phương án này chưa chính xác theo lý thuyết đề bài.'
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Bottom Bar: Action buttons */}
