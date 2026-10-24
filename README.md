@@ -23,3 +23,33 @@
    - **Tạo thủ công**: Thêm câu hỏi, đáp án A/B/C/D, chọn đáp án đúng và nhập lời giải thích chi tiết cho từng phương án.
    - **Tải file PDF thông minh**: Tải file đề thi PDF lên, hệ thống tự động phân tích và sinh bộ đề kèm giải thích chi tiết.
    - **Chia sẻ link**: Tự động sinh `share_code` độc nhất, cho phép gửi link trực tiếp (`/quiz/<share_code>`).
+
+---
+
+## ⚡ Hướng Dẫn Khởi Động Dự Án
+
+### Cách 1: Chạy 1-Click (Khuyên dùng)
+Chạy script tại thư mục gốc:
+```powershell
+.\run.bat
+# hoặc
+.\start.bat
+```
+
+### Cách 2: Chạy Dòng Lệnh Thủ Công (2 Terminal)
+
+**Terminal 1 - Backend (FastAPI - Port 8000):**
+```powershell
+cd backend
+.\venv\Scripts\python.exe run.py
+```
+
+**Terminal 2 - Frontend (React Vite - Port 5173):**
+```powershell
+cd frontend
+npm run dev
+```
+
+### Địa chỉ truy cập
+- **Giao diện Web:** [http://localhost:5173](http://localhost:5173)
+- **API Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
